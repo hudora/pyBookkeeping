@@ -109,7 +109,7 @@ def make_struct(obj):
 
 class CyberlogiBookkeeping(bookkeeping.abstrct.AbsrtactBookkeeping):
     def store_invoice(self, originvoice):
-        """Erzeugt eine (Ausgangs-) Rechnung anhand Simvple Incoice Protocol.
+        """Erzeugt eine (Ausgangs-) Rechnung anhand Simple Incoice Protocol.
         Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown"""
 
         self.check_invoice(originvoice)
