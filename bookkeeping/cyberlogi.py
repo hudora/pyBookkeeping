@@ -97,19 +97,25 @@ class Struct(object):
     def __getattr__(self, name):
         return None
 
+    def __setattr__(self, name, value):
+        raise ValueError('This is a read-only data structure')
+    
+    def __delattr__(self, name):
+        raise ValueError('This is a read-only data structure')
+
 
 def make_struct(obj):
     """Converts a dict to an Object, leaves an Object untouched.
     Read Only!
     """
     if not hasattr(obj, '__dict__'):
-        return Struct(obv)
+        return Struct(obj)
     return obj
 
 
-class CyberlogiBookkeeping(bookkeeping.abstrct.AbsrtactBookkeeping):
+class CyberlogiBookkeeping(bookkeeping.abstract.AbstractBookkeeping):
     def store_invoice(self, originvoice):
-        """Erzeugt eine (Ausgangs-) Rechnung anhand Simple Incoice Protocol.
+        """Erzeugt eine (Ausgangs-) Rechnung anhand Simple Invoice Protocol.
         Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown"""
 
         self.check_invoice(originvoice)
@@ -126,16 +132,16 @@ class CyberlogiBookkeeping(bookkeeping.abstrct.AbsrtactBookkeeping):
             ET.SubElement(invoice, 'Reference').text = invoice.kundenauftragsnr
         ET.SubElement(invoice, 'LineAmountTypes').text = 'Exclusive'
 
-* *infotext_kunde* - Freitext, der sich an den WarenempfC$nger richtet. Kann z.B. auf der Rechnung
-  angedruckt werden. Der Umbruch des Textes kann durch das Backendsystem beliebig erfolgen, deshalb sollte
-  der Text keine ZeilenumbrC<che beinhalten. Erscheint mC6glicherweise auch nicht.
-* *kundennr* Interne Kundennummer. Kann das [AddressProtocol][2] erweitern. Wenn eine `kundennr`
-  angegeben ist und die per [AddressProtocol][2] angegebene Lieferadresse nicht zu der `kundennr` passt,
-  handelt es sich um eine abweichende Lieferadresse.
-* *absenderadresse* - (mehrzeiliger) String, der die Absenderadresse auf Rechnungen codiert. Solte auch
-  die UStID des Absenders enthalten.
-* *erfasst_von* - Name der Person oder des Prozesses (bei EDI), der den Auftrag in das System eingespeist hat
-* *preis* - Rechnungs-Gesammt-Preis der Orderline in Cent ohne Mehrwertsteuer.
+# * *infotext_kunde* - Freitext, der sich an den WarenempfC$nger richtet. Kann z.B. auf der Rechnung
+#   angedruckt werden. Der Umbruch des Textes kann durch das Backendsystem beliebig erfolgen, deshalb sollte
+#   der Text keine ZeilenumbrC<che beinhalten. Erscheint mC6glicherweise auch nicht.
+# * *kundennr* Interne Kundennummer. Kann das [AddressProtocol][2] erweitern. Wenn eine `kundennr`
+#   angegeben ist und die per [AddressProtocol][2] angegebene Lieferadresse nicht zu der `kundennr` passt,
+#   handelt es sich um eine abweichende Lieferadresse.
+# * *absenderadresse* - (mehrzeiliger) String, der die Absenderadresse auf Rechnungen codiert. Solte auch
+#   die UStID des Absenders enthalten.
+# * *erfasst_von* - Name der Person oder des Prozesses (bei EDI), der den Auftrag in das System eingespeist hat
+# * *preis* - Rechnungs-Gesammt-Preis der Orderline in Cent ohne Mehrwertsteuer.
 
         lineitems = ET.SubElement(invoice, 'LineItems')
         for orderline in invoice['orderlines']:
@@ -151,7 +157,7 @@ class CyberlogiBookkeeping(bookkeeping.abstrct.AbsrtactBookkeeping):
         ET.SubElement(lineitem, 'Quantity').text = '1'
         ET.SubElement(lineitem, 'UnitAmount').text = str(consignment.versandkosten)
         ET.SubElement(lineitem, 'AccountCode').text = '201'
-* *versandkosten* - Versandkosten in Cent ohne Mehrwertsteuer
+# * *versandkosten* - Versandkosten in Cent ohne Mehrwertsteuer
         
         contact = ET.SubElement(invoice, 'Contact')
         ET.SubElement(contact, 'Name').text = ' '.join([c.name1, c.name2])
@@ -196,25 +202,25 @@ class CyberlogiBookkeeping(bookkeeping.abstrct.AbsrtactBookkeeping):
 
 ## Per Order
 
-* _kundenauftragsnr_ - Freitext, den der Kunde bei der Bestellung mit angegeben hat, ca. 20 Zeichen.
-* *infotext_kunde* - Freitext, der sich an den Warenempfänger richtet. Kann z.B. auf einem Lieferschein angedruckt werden. Der Umbruch des Textes kann durch das Backendsystem beliebig erfolgen, deshalb sollte der Text keine Zeilenumbrüche beinhalten.
-* _kundennr_ Interne Kundennummer. Kann das [AddressProtocol][2] erweitern. Wenn eine `kundennr`
-  angegeben ist und die per [AddressProtocol][2] angegebene Lieferadresse nicht zu der `kundennr` passt,
-  handelt es sich um eine abweichende Lieferadresse.
-* _versandkosten_ - Versandkosten in Cent ohne Mehrwertsteuer
-* _absenderadresse_ - (mehrzeiliger) String, der die Absenderadresse auf Versandpapieren codiert.
-* *erfasst_von* - Name der Person oder des Prozesses (bei EDI), der den Auftrag in das System eingespeist hat.
-
-[2]: http://github.com/hudora/huTools/blob/master/doc/standards/address_protocol.markdown
-
-
-## Pro Orderline
-* **orderline/guid** - Eindeutiger ID der Position. GUID des Auftrags + Positionsnummer funktionieren ganz gut.
-* **orderline/menge** - Menge des durch *ean* bezeichneten Artikels, die versendet werden soll.
-* **orderline/ean** - EAN des zu versendenen Artikels.
-* **orderline/artnr** - Kann als Alternative zur EAN angegeben werden.
-* *orderline/infotext_kunde* - Freitext, der sich an den Warenempfänger richtet. Wird nicht bei allen
-  Versandwegen angedruckt.
-* _orderline/preis_ - Rechnungs-Preis der Orderline in Cent ohne Mehrwertsteuer.
-
-[3]: http://www.ietf.org/rfc/rfc3339.txt
+# * _kundenauftragsnr_ - Freitext, den der Kunde bei der Bestellung mit angegeben hat, ca. 20 Zeichen.
+# * *infotext_kunde* - Freitext, der sich an den Warenempfänger richtet. Kann z.B. auf einem Lieferschein angedruckt werden. Der Umbruch des Textes kann durch das Backendsystem beliebig erfolgen, deshalb sollte der Text keine Zeilenumbrüche beinhalten.
+# * _kundennr_ Interne Kundennummer. Kann das [AddressProtocol][2] erweitern. Wenn eine `kundennr`
+#   angegeben ist und die per [AddressProtocol][2] angegebene Lieferadresse nicht zu der `kundennr` passt,
+#   handelt es sich um eine abweichende Lieferadresse.
+# * _versandkosten_ - Versandkosten in Cent ohne Mehrwertsteuer
+# * _absenderadresse_ - (mehrzeiliger) String, der die Absenderadresse auf Versandpapieren codiert.
+# * *erfasst_von* - Name der Person oder des Prozesses (bei EDI), der den Auftrag in das System eingespeist hat.
+# 
+# [2]: http://github.com/hudora/huTools/blob/master/doc/standards/address_protocol.markdown
+# 
+# 
+# ## Pro Orderline
+# * **orderline/guid** - Eindeutiger ID der Position. GUID des Auftrags + Positionsnummer funktionieren ganz gut.
+# * **orderline/menge** - Menge des durch *ean* bezeichneten Artikels, die versendet werden soll.
+# * **orderline/ean** - EAN des zu versendenen Artikels.
+# * **orderline/artnr** - Kann als Alternative zur EAN angegeben werden.
+# * *orderline/infotext_kunde* - Freitext, der sich an den Warenempfänger richtet. Wird nicht bei allen
+#   Versandwegen angedruckt.
+# * _orderline/preis_ - Rechnungs-Preis der Orderline in Cent ohne Mehrwertsteuer.
+# 
+# [3]: http://www.ietf.org/rfc/rfc3339.txt
