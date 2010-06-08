@@ -14,10 +14,18 @@ import husoftm.kunden
 import husoftm.rechnungen
 import husoftm.sachbearbeiter
 import husoftm.stapelschnittstelle
+import uuid
 from decimal import Decimal
 
 ABSENDER_ADRESSE = u"HUDORA GmbH\nJägerwald 13\nD-42897 Remscheid"
 
+
+# XXX
+def check_order(order):
+    return True
+
+def store_invoice(invoice):
+    raise NotImplementedError
 
 def store_order(order):
     """
@@ -25,6 +33,10 @@ def store_order(order):
     
     Es wird erwartet, dass der Auftrag dem ExtendedOrderProtocol entspricht.
     """
+    
+    if not check_order(order):
+        raise ValueError('Order does not conform to ExtendedOrderProtocol')
+    
     vorgangsnr = husoftm.stapelschnittstelle.auftrag2softm(order)
     if not husoftm.stapelschnittstelle.address_transmitted(vorgangsnr):
         raise RuntimeError("Fehler bei Vorgang %s: Die Addresse wurde nicht korrekt uebermittelt." % vorgangsnr)
@@ -54,7 +66,7 @@ def read_invoice(kdnr, rechnungsnr):
         'mail': kunde.mail,
         'iln': kunde.iln,
         
-        'guid': None, # XXX
+        'guid': str(uuid4()),
         'leistungszeitpunkt': datetime.date.today().strftime('%Y-%m-%dT%H:%M:%S'),
         'kundenauftragsnr': auftragskopf['auftragsnr_kunde'],
         'infotext_kunde': "", # XXX
@@ -65,7 +77,6 @@ def read_invoice(kdnr, rechnungsnr):
         'orderlines': [],
     }
     
-    orderlines = []
     for index, position in enumerate(rechnungspositionen):
         artikel = husoftm.artikel.get_artikel(artnr=position['artnr'])
         invoice['orderlines'].append({'guid': '%s-%d' % (invoice['guid'], index),
@@ -79,9 +90,7 @@ def read_invoice(kdnr, rechnungsnr):
 
 
 def main():
-    invoice = read_invoice('66666', '1065659')
-    import pprint
-    pprint.pprint(invoice)
+    pass
 
 
 if __name__ == '__main__':

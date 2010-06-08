@@ -8,14 +8,17 @@ Created by Maximillian Dornseif on 2010-06-04.
 Copyright (c) 2010 HUDORA. All rights reserved.
 """
 
-from cs.keychain import XERO_CONSUMER_KEY, XERO_CONSUMER_SECRET, XERO_RSACERT, XERO_RSAKEY
-from tlslite.utils import cryptomath
-from tlslite.utils import keyfactory
+import base64
 import binascii
 import bookkeeping.abstract
 import datetime
 import oauth2 as oauth
+import urllib
 import xml.etree.ElementTree as ET
+
+from cs.keychain import XERO_CONSUMER_KEY, XERO_CONSUMER_SECRET, XERO_RSACERT, XERO_RSAKEY
+#from tlslite.utils import cryptomath
+from tlslite.utils import keyfactory
 
 # OAuthSignatureMethod_RSA_SHA1 is from
 # http://gdata-python-client.googlecode.com/svn-history/r576/trunk/src/gdata/oauth/rsa.py
@@ -31,14 +34,13 @@ class OAuthSignatureMethod_RSA_SHA1(oauth.SignatureMethod):
         raise NotImplementedError
 
     def build_signature_base_string(self, oauth_request, consumer, token):
-          sig = (
-              oauth.escape(oauth_request.method),
-              oauth.escape(oauth_request.normalized_url),
-              oauth.escape(oauth_request.get_normalized_parameters()),
-          )
-          key = ''
-          raw = '&'.join(sig)
-          return key, raw
+        sig = (oauth.escape(oauth_request.method),
+               oauth.escape(oauth_request.normalized_url),
+               oauth.escape(oauth_request.get_normalized_parameters()),
+              )
+        key = ''
+        raw = '&'.join(sig)
+        return key, raw
 
     def sign(self, oauth_request, consumer, token):
         """Builds the base signature string."""
@@ -66,20 +68,22 @@ class OAuthSignatureMethod_RSA_SHA1(oauth.SignatureMethod):
 
 
 class XeroOAuthSignatureMethod_RSA_SHA1(OAuthSignatureMethod_RSA_SHA1):
-  def _fetch_public_cert(self, oauth_request):
-    return XERO_RSACERT
+    def _fetch_public_cert(self, oauth_request):
+        return XERO_RSACERT
 
-  def _fetch_private_cert(self, oauth_request):
-    return XERO_RSAKEY
+    def _fetch_private_cert(self, oauth_request):
+        return XERO_RSAKEY
 
 
-def xero_request(url, method="GET", body='', getparameters={}):
+def xero_request(url, method="GET", body='', getparameters=None):
     # Xero want Two-legged OAuth which useds the same key in both stages.
     consumer = oauth.Consumer(key=XERO_CONSUMER_KEY, secret=XERO_CONSUMER_SECRET)
     client = oauth.Client(consumer, token=oauth.Token(key=XERO_CONSUMER_KEY, secret=XERO_CONSUMER_SECRET))
     client.set_signature_method(XeroOAuthSignatureMethod_RSA_SHA1())
+    if getparameters is None:
+        getparameters = {}
     url = "%s?%s" % (url, urllib.urlencode(getparameters))
-    resp, content = client.request(url, Method, body=body, headers={'content-type': 'text/xml; charset=utf-8'})
+    resp, content = client.request(url, method, body=body, headers={'content-type': 'text/xml; charset=utf-8'})
     if not resp['status'] == '200':
         print url
         print body
@@ -114,12 +118,12 @@ def make_struct(obj):
 
 
 class CyberlogiBookkeeping(bookkeeping.abstract.AbstractBookkeeping):
-    def store_invoice(self, originvoice):
+    def store_invoice(self, invoice):
         """Erzeugt eine (Ausgangs-) Rechnung anhand Simple Invoice Protocol.
         Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown"""
 
-        self.check_invoice(originvoice)
-        invoice = make_struct(originvoice)
+        self.check_invoice(invoice)
+        invoice = make_struct(invoice)
         root = ET.Element('Invoices')
         invoice = ET.SubElement(root, 'Invoice')
         ET.SubElement(invoice, 'Type').text = 'ACCREC'  # Accounts receivable
@@ -155,22 +159,22 @@ class CyberlogiBookkeeping(bookkeeping.abstract.AbstractBookkeeping):
         lineitem = ET.SubElement(lineitems, 'LineItem')
         ET.SubElement(lineitem, 'Description').text = 'Verpackung & Versand'
         ET.SubElement(lineitem, 'Quantity').text = '1'
-        ET.SubElement(lineitem, 'UnitAmount').text = str(consignment.versandkosten)
+        # ET.SubElement(lineitem, 'UnitAmount').text = str(consignment.versandkosten)
         ET.SubElement(lineitem, 'AccountCode').text = '201'
 # * *versandkosten* - Versandkosten in Cent ohne Mehrwertsteuer
         
         contact = ET.SubElement(invoice, 'Contact')
-        ET.SubElement(contact, 'Name').text = ' '.join([c.name1, c.name2])
-        ET.SubElement(contact, 'EmailAddress').text = c.email
+        ET.SubElement(contact, 'Name').text = (' '.join([invoice.name1, invoice.name2])).strip()
+        ET.SubElement(contact, 'EmailAddress').text = invoice.email
         addresses = ET.SubElement(contact, 'Addresses')
         address = ET.SubElement(addresses, 'Address')
         ET.SubElement(address, 'AddressType').text = 'STREET'
-        ET.SubElement(address, 'AttentionTo').text = c.name1
-        if c.name2:
-            ET.SubElement(address, 'AddressLine1').text = c.name2
-        ET.SubElement(address, 'City').text = c.ort   
-        ET.SubElement(address, 'PostalCode').text = c.plz
-        ET.SubElement(address, 'Country').text = c.land
+        ET.SubElement(address, 'AttentionTo').text = invoice.name1
+        if invoice.name2:
+            ET.SubElement(address, 'AddressLine1').text = invoice.name2
+        ET.SubElement(address, 'City').text = invoice.ort   
+        ET.SubElement(address, 'PostalCode').text = invoice.plz
+        ET.SubElement(address, 'Country').text = invoice.land
         #  <Phones>
         #    <Phone>
         #      <PhoneType>DEFAULT</PhoneType>
