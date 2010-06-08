@@ -142,7 +142,8 @@ def write_ofx(account, vorgaenge):
         ET.SubElement(stmttrn, 'TRNAMT').text = amount
         # That is, the <FITID> value must be unique within the account and Financial Institution (independent of the service provider).
         ET.SubElement(stmttrn, 'FITID').text = guid.replace('*', '.')
-        if len(verwendungszweck) < 12:
+        verwendungszweck = verwendungszweck.strip()
+        if verwendungszweck and len(verwendungszweck) < 12:
             # reference/Check number, A-12
             ET.SubElement(stmttrn, 'CHECKNUM').text = verwendungszweck
         # PAYEE
@@ -151,16 +152,16 @@ def write_ofx(account, vorgaenge):
         ET.SubElement(stmttrn, 'MEMO').text = (' '.join([verwendungszweck, description]))[:254]
     
     header = """OFXHEADER:100
-    DATA:OFXSGML
-    VERSION:102
-    SECURITY:NONE
-    ENCODING:USASCII
-    CHARSET:1252
-    COMPRESSION:NONE
-    OLDFILEUID:NONE
-    NEWFILEUID:NONE
-    
-    """
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+"""
     body = ET.tostring(root, encoding='utf-8')
     fname = 'auszug_%s_%s.ofx' % (datetime.date.today(), account.replace('/','.'))
     print "writing %s" % fname
