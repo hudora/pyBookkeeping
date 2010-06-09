@@ -8,14 +8,15 @@ Created by Maximillian Dornseif on 2010-06-04.
 Copyright (c) 2010 HUDORA. All rights reserved.
 """
 
-from cs.keychain import XERO_CONSUMER_KEY, XERO_CONSUMER_SECRET, XERO_RSACERT, XERO_RSAKEY
-from tlslite.utils import cryptomath
-from tlslite.utils import keyfactory
+import base64
 import binascii
-import bookkeeping.abstract
 import datetime
 import oauth2 as oauth
+import urllib
 import xml.etree.ElementTree as ET
+from cs.keychain import XERO_CONSUMER_KEY, XERO_CONSUMER_SECRET, XERO_RSACERT, XERO_RSAKEY
+#from tlslite.utils import cryptomath
+from tlslite.utils import keyfactory
 
 
 URL_BASE = 'https://api.xero.com/api.xro/2.0/Invoices'
@@ -35,18 +36,17 @@ class OAuthSignatureMethod_RSA_SHA1(oauth.SignatureMethod):
     def _fetch_private_cert(self, oauth_request):
         raise NotImplementedError
 
-    def build_signature_base_string(self, oauth_request, consumer, token):
+    def build_signature_base_string(self, oauth_request, consumer, token): # XXX consumer und token ungenutzt?
         sig = (oauth.escape(oauth_request.method),
                oauth.escape(oauth_request.normalized_url),
                oauth.escape(oauth_request.get_normalized_parameters()),
               )
-        key = ''
         raw = '&'.join(sig)
-        return key, raw
+        return raw
 
     def sign(self, oauth_request, consumer, token):
         """Builds the base signature string."""
-        key, base_string = self.build_signature_base_string(oauth_request, consumer, token)
+        base_string = self.build_signature_base_string(oauth_request, consumer, token)
         # Fetch the private key cert based on the request
         cert = self._fetch_private_cert(oauth_request)
         # Pull the private key from the certificate
@@ -59,36 +59,39 @@ class OAuthSignatureMethod_RSA_SHA1(oauth.SignatureMethod):
 
     def check_signature(self, oauth_request, consumer, token, signature):
         decoded_sig = base64.b64decode(signature)
-        key, base_string = self.build_signature_base_string(oauth_request, consumer, token)
+        base_string = self.build_signature_base_string(oauth_request, consumer, token)
         # Fetch the public key cert based on the request
         cert = self._fetch_public_cert(oauth_request)
         # Pull the public key from the certificate
         publickey = keyfactory.parsePEMKey(cert, public=True)
         # Check the signature
-        ok = publickey.hashAndVerify(decoded_sig, base_string)
-        return ok
+        valid = publickey.hashAndVerify(decoded_sig, base_string)
+        return valid
 
 
 class XeroOAuthSignatureMethod_RSA_SHA1(OAuthSignatureMethod_RSA_SHA1):
-  def _fetch_public_cert(self, oauth_request):
-    return XERO_RSACERT
+    def _fetch_public_cert(self, oauth_request):
+        return XERO_RSACERT
 
-  def _fetch_private_cert(self, oauth_request):
-    return XERO_RSAKEY
+    def _fetch_private_cert(self, oauth_request):
+        return XERO_RSAKEY
 
 
-def xero_request(url, method='GET', body='', getparameters=None):
+def xero_request(url, method='GET', body='', get_parameters=None, headers=None):
     """Request an xero durchführen"""
     
-    # Xero want Two-legged OAuth which useds the same key in both stages.
     consumer = oauth.Consumer(key=XERO_CONSUMER_KEY, secret=XERO_CONSUMER_SECRET)
     client = oauth.Client(consumer, token=oauth.Token(key=XERO_CONSUMER_KEY, secret=XERO_CONSUMER_SECRET))
     client.set_signature_method(XeroOAuthSignatureMethod_RSA_SHA1())
-    if getparameters is None:
-        getparameters = {}
-    url = "%s?%s" % (url, urllib.urlencode(getparameters))
-    response, content = client.request(url, method, body=body, headers={'content-type': 'text/xml; charset=utf-8'})
-    if response['status'] != '200':
+    
+    if headers is None:
+        headers = {}
+
+    if not get_parameters is None:
+        url = "%s?%s" % (url, urllib.urlencode(get_parameters))
+
+    response, content = client.request(url, method, body=body, headers={})
+    if response['status'] != '200': # XXX: oder nur fehlercodes?
         raise RuntimeError("Return code %s for %s" % (response['status'], url))
     return content
 
@@ -145,7 +148,8 @@ def store_invoice(invoice):
     ET.SubElement(invoice, 'InvoiceNumber').text = invoice.guid
 
     if invoice.zahlungsziel:
-        ET.SubElement(invoice, 'DueDate').text = (invoice.leistungsdatum + datetime.timedelta(days=invoice.zahlungsziel)).strftime('%Y-%m-%d')
+        timedelta = datetime.timedelta(days=invoice.zahlungsziel)
+        ET.SubElement(invoice, 'DueDate').text = (invoice.leistungsdatum + timedelta).strftime('%Y-%m-%d')
 
     if invoice.kundenauftragsnr:
         ET.SubElement(invoice, 'Reference').text = invoice.kundenauftragsnr
@@ -153,9 +157,9 @@ def store_invoice(invoice):
 
     # Füge die ConsignmentItems und die Versandkosten hinzu
     lineitems = ET.SubElement(invoice, 'LineItems')
-    for item in consignment.consignmentitem_set.all():
+    for item in invoice.orderlines:
         add_orderline(lineitems, u"%s - %s" % (item.artnr, item.text), item.quantity, item.unit_price, '200')
-    add_orderline(lineitems, 'Verpackung & Versand', 1, consignment.versandkosten, '201')
+    add_orderline(lineitems, 'Verpackung & Versand', 1, invoice.versandkosten, '201')
     
     # Adressdaten
     contact = ET.SubElement(invoice, 'Contact')
@@ -225,12 +229,12 @@ def get_invoice(lieferscheinnr):
     
     Wenn keine Rechnung zu der Lieferscheinnummer existiert, wird None zurückgegeben.
     """
-
-    url = "%s?%s" % (URLBASE, urllib.urlencode({'where': 'Status!="DELETED"&&Status!="VOIDED"&&Reference=="%s"' % lieferscheinnr}))
-    content = xero_request(url)
+    
+    get_parameters = {'where': 'Status!="DELETED"&&Status!="VOIDED"&&Reference=="%s"' % lieferscheinnr}
+    content = xero_request(URL_BASE, get_parameters=get_parameters)
     tree = ET.fromstring(content)
     invoices = []
-    for element in xml.getiterator('Invoice'):
+    for element in tree.getiterator('Invoice'):
         invoice = {}
         for attr in '''Reference Date DueDate Status LineAmountTypes SubTotal TotalTax Total UpdatedDateUTC
                        CurrencyCode InvoiceID InvoiceNumber AmountDue AmountPaid'''.split():
