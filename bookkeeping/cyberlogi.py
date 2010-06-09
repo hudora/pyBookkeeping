@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 from cs.keychain import XERO_CONSUMER_KEY, XERO_CONSUMER_SECRET, XERO_RSACERT, XERO_RSAKEY
 #from tlslite.utils import cryptomath
 from tlslite.utils import keyfactory
-
+from bookkeeping import make_struct
 
 URL_BASE = 'https://api.xero.com/api.xro/2.0/Invoices'
 
@@ -96,25 +96,6 @@ def xero_request(url, method='GET', body='', get_parameters=None, headers=None):
     return content
 
 
-# siehe http://stackoverflow.com/questions/1305532/convert-python-dict-to-object
-class Struct(object):
-    def __init__(self, **entries): 
-        self.__dict__.update(entries)
-        self.default = None
-
-    def __getattr__(self, name):
-        return self.default
-
-
-def make_struct(obj):
-    """Converts a dict to an Object, leaves an Object untouched.
-    Read Only!
-    """
-    if not hasattr(obj, '__dict__'):
-        return Struct(obj)
-    return obj
-
-
 def add_orderline(root, description, qty, price, account_code):
     """Füge Orderline zu XML-Baum hinzu"""
     lineitem = ET.SubElement(root, 'LineItem')
@@ -134,11 +115,10 @@ def store_invoice(invoice):
     Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown
     
     """
-
-    if not check_invoice(invoice) == True:
-        raise RuntimeError("Invalid Invoice")
     
     invoice = make_struct(invoice)
+    if not check_invoice(invoice):
+        raise RuntimeError("Invalid Invoice")
     
     root = ET.Element('Invoices')
     invoice = ET.SubElement(root, 'Invoice')

@@ -16,6 +16,7 @@ import husoftm.sachbearbeiter
 import husoftm.stapelschnittstelle
 import uuid
 from decimal import Decimal
+from bookkeeping import make_struct
 
 ABSENDER_ADRESSE = u"HUDORA GmbH\nJägerwald 13\nD-42897 Remscheid"
 
@@ -34,6 +35,7 @@ def store_order(order):
     Es wird erwartet, dass der Auftrag dem ExtendedOrderProtocol entspricht.
     """
     
+    order = make_struct(order)
     if not check_order(order):
         raise ValueError('Order does not conform to ExtendedOrderProtocol')
     
