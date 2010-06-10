@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 from cs.keychain import XERO_CONSUMER_KEY, XERO_CONSUMER_SECRET, XERO_RSACERT, XERO_RSAKEY
 #from tlslite.utils import cryptomath
 from tlslite.utils import keyfactory
-from bookkeeping import make_struct
+from bookkeeping.struct import make_struct
 
 URL_BASE = 'https://api.xero.com/api.xro/2.0/Invoices'
 

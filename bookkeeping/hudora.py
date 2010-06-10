@@ -14,7 +14,7 @@ import husoftm.rechnungen
 import husoftm.stapelschnittstelle
 import uuid
 from decimal import Decimal
-from bookkeeping import make_struct
+from bookkeeping.struct import make_struct
 
 ABSENDER_ADRESSE = u"HUDORA GmbH\nJägerwald 13\nD-42897 Remscheid"
 
