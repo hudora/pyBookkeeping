@@ -9,10 +9,8 @@ Copyright (c) 2010 HUDORA. All rights reserved.
 
 import datetime
 import husoftm.artikel
-import husoftm.auftraege
 import husoftm.kunden
 import husoftm.rechnungen
-import husoftm.sachbearbeiter
 import husoftm.stapelschnittstelle
 import uuid
 from decimal import Decimal
@@ -54,7 +52,6 @@ def read_invoice(kdnr, rechnungsnr):
     
     kunde = husoftm.kunden.get_kunde(kdnr)
     rechnungskopf, rechnungspositionen = husoftm.rechnungen.get_rechnung(rechnungsnr)
-    auftragskopf, auftragspositionen = husoftm.auftraege.get_auftrag(rechnungskopf['auftragsnummer'])
     
     invoice = {
         'kundennr': kdnr,
@@ -70,21 +67,17 @@ def read_invoice(kdnr, rechnungsnr):
         
         'guid': str(uuid4()),
         'leistungszeitpunkt': datetime.date.today().strftime('%Y-%m-%dT%H:%M:%S'),
-        'kundenauftragsnr': auftragskopf['auftragsnr_kunde'],
-        'infotext_kunde': "", # XXX
-        'versandkosten': int(400 / 1.19), # XXX,
+        # 'versandkosten': int(400 / 1.19), # werden als Rechnungsposten aufgeführt!
         'absenderadresse': ABSENDER_ADRESSE,
-        'erfasst_von': husoftm.sachbearbeiter.name(auftragskopf['sachbearbeiter']),
         'preis': int(rechnungskopf['netto'] * 100),
         'orderlines': [],
     }
     
     for index, position in enumerate(rechnungspositionen):
-        artikel = husoftm.artikel.get_artikel(artnr=position['artnr'])
         invoice['orderlines'].append({'guid': '%s-%d' % (invoice['guid'], index),
                                       'menge': position['menge'],
                                       'artnr': position['artnr'],
-                                      'ean': artikel.ean,
+                                      'infotext_kunde': position['text'],
                                       'infotext_kunde': '',
                                       'preis': int(position['wert_netto'] / Decimal("1.19")),
                                      })
