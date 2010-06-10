@@ -164,7 +164,7 @@ def store_invoice(invoice):
 
 # Fast komplette Kopie von store_invoice
 # Nur die AccountCodes sind unterschiedlich
-def store_hudorainvoice(datum, mengen, preise, namen):
+def store_hudorainvoice(datum, orderlines, netto=True):
     """Erzeuge eingehende Rechnung und übertrage zu xero.com"""
     
     root = ET.Element('Invoices')
@@ -172,14 +172,18 @@ def store_hudorainvoice(datum, mengen, preise, namen):
     ET.SubElement(invoice, 'Reference').text = u'Online_%s' % datum
     ET.SubElement(invoice, 'Type').text = 'ACCPAY'
     ET.SubElement(invoice, 'Status').text = 'SUBMITTED'
-    ET.SubElement(invoice, 'LineAmountTypes').text = 'Inclusive'
+    ET.SubElement(invoice, 'LineAmountTypes').text = 'Exclusive' if netto else 'Inclusive'
     ET.SubElement(invoice, 'Date').text = datum.strftime('%Y-%m-%d')
     ET.SubElement(invoice, 'DueDate').text = (datum + datetime.timedelta(days=30)).strftime('%Y-%m-%d')
+    
     lineitems = ET.SubElement(invoice, 'LineItems')
 
     versandkosten = 4.0
     add_orderline(lineitems, 'Paketversand DPD', len(mengen), versandkosten, '4730')
 
+    for item in orderlines:
+        add_orderline(lineitems, u"%s - %s" % (item.artnr, item.text), item.quantity, item.unit_price, '3400')
+        
     for artnr in mengen.keys():
         lineitem = ET.SubElement(lineitems, 'LineItem')
         ET.SubElement(lineitem, 'Description').text = "%s - %s" % (artnr, namen.get('artnr', ''))
