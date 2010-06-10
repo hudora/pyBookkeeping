@@ -21,5 +21,5 @@ def make_struct(obj):
     Read Only!
     """
     if not hasattr(obj, '__dict__'):
-        return Struct(obj)
+        return Struct(**obj)
     return obj

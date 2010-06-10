@@ -109,57 +109,59 @@ def check_invoice(*args, **kwargs):
     return True
 
 
-def store_invoice(invoice):
+def store_invoice(consignment):
     """
     Erzeugt eine (Ausgangs-) Rechnung anhand des Simple Invoice Protocol.
     Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown
     
     """
     
-    invoice = make_struct(invoice)
-    if not check_invoice(invoice):
+    consignment = make_struct(consignment)
+    if not check_invoice(consignment):
         raise RuntimeError("Invalid Invoice")
     
     root = ET.Element('Invoices')
     invoice = ET.SubElement(root, 'Invoice')
     ET.SubElement(invoice, 'Type').text = 'ACCREC'
     ET.SubElement(invoice, 'Status').text = 'SUBMITTED'
-    ET.SubElement(invoice, 'Date').text = invoice.leistungsdatum
-    ET.SubElement(invoice, 'InvoiceNumber').text = invoice.guid
+    ET.SubElement(invoice, 'Date').text = consignment.leistungszeitpunkt
+    ET.SubElement(invoice, 'InvoiceNumber').text = consignment.guid
 
-    if invoice.zahlungsziel:
-        timedelta = datetime.timedelta(days=invoice.zahlungsziel)
-        ET.SubElement(invoice, 'DueDate').text = (invoice.leistungsdatum + timedelta).strftime('%Y-%m-%d')
+    if consignment.zahlungsziel:
+        timedelta = datetime.timedelta(days=consignment.zahlungsziel)
+        ET.SubElement(invoice, 'DueDate').text = (consignment.leistungszeitpunkt + timedelta).strftime('%Y-%m-%d')
 
-    if invoice.kundenauftragsnr:
-        ET.SubElement(invoice, 'Reference').text = invoice.kundenauftragsnr
+    if consignment.kundenauftragsnr:
+        ET.SubElement(invoice, 'Reference').text = consignment.kundenauftragsnr
     ET.SubElement(invoice, 'LineAmountTypes').text = 'Exclusive'
 
     # Füge die ConsignmentItems und die Versandkosten hinzu
     lineitems = ET.SubElement(invoice, 'LineItems')
-    for item in invoice.orderlines:
-        add_orderline(lineitems, u"%s - %s" % (item.artnr, item.text), item.quantity, item.unit_price, '200')
-    add_orderline(lineitems, 'Verpackung & Versand', 1, invoice.versandkosten, '201')
+    for item in consignment.orderlines:
+        item = make_struct(item) # XXX rekursives Verhalten mit in make_struct packen
+        add_orderline(lineitems, u"%s - %s" % (item.artnr, item.guid), item.menge, item.preis, '200')
+    add_orderline(lineitems, 'Verpackung & Versand', 1, consignment.versandkosten, '201')
     
     # Adressdaten
     contact = ET.SubElement(invoice, 'Contact')
-    ET.SubElement(contact, 'Name').text = ' '.join([invoice.name1, invoice.name2])
-    ET.SubElement(contact, 'EmailAddress').text = invoice.email
+    ET.SubElement(contact, 'Name').text = ' '.join([consignment.name1, consignment.name2])
+    ET.SubElement(contact, 'EmailAddress').text = consignment.email
     addresses = ET.SubElement(contact, 'Addresses')
     address = ET.SubElement(addresses, 'Address')
     ET.SubElement(address, 'AddressType').text = 'STREET'
-    ET.SubElement(address, 'AttentionTo').text = invoice.name1
+    ET.SubElement(address, 'AttentionTo').text = consignment.name1
     
-    if invoice.name2:
-        ET.SubElement(address, 'AddressLine1').text = invoice.name2
+    if consignment.name2:
+        ET.SubElement(address, 'AddressLine1').text = consignment.name2
     
-    ET.SubElement(address, 'City').text = invoice.ort   
-    ET.SubElement(address, 'PostalCode').text = invoice.plz
-    ET.SubElement(address, 'Country').text = invoice.land
+    ET.SubElement(address, 'City').text = consignment.ort   
+    ET.SubElement(address, 'PostalCode').text = consignment.plz
+    ET.SubElement(address, 'Country').text = consignment.land
     body = ET.tostring(root, encoding='utf-8')
     
     content = xero_request(URL_BASE, "PUT", body=body, headers={'content-type': 'text/xml; charset=utf-8'})
-    return content
+    tree = ET.fromstring(content)
+    return tree.find('Invoices/Invoice/InvoiceID').text
 
 
 # Fast komplette Kopie von store_invoice
@@ -200,7 +202,8 @@ def store_hudorainvoice(datum, mengen, preise, namen):
     body = ET.tostring(root, encoding='utf-8')
 
     content = xero_request(URL_BASE, "PUT", body=body, headers={'content-type': 'text/xml; charset=utf-8'})
-    return content
+    tree = ET.fromstring(content)
+    return tree.find('Invoices/Invoice/InvoiceID').text
 
 
 def get_invoice(lieferscheinnr):
@@ -211,7 +214,9 @@ def get_invoice(lieferscheinnr):
     """
     
     get_parameters = {'where': 'Status!="DELETED"&&Status!="VOIDED"&&Reference=="%s"' % lieferscheinnr}
+
     content = xero_request(URL_BASE, get_parameters=get_parameters)
+    
     tree = ET.fromstring(content)
     invoices = []
     for element in tree.getiterator('Invoice'):
@@ -221,3 +226,10 @@ def get_invoice(lieferscheinnr):
             invoice[attr] = element.find(attr).text
         invoices.append(invoice)
     return invoices
+
+
+def list_invoices():
+    get_parameters = {'where': 'Status!="DELETED"&&Status!="VOIDED"'}
+    content = xero_request(URL_BASE, get_parameters=get_parameters)
+    tree = ET.fromstring(content)
+    return [inv_id.text for inv_id in tree.findall('Invoices/Invoice/InvoiceID')]
