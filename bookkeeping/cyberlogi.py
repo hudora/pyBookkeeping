@@ -15,7 +15,7 @@ import oauth2 as oauth
 import urllib
 import xml.etree.ElementTree as ET
 from cs.keychain import XERO_CONSUMER_KEY, XERO_CONSUMER_SECRET, XERO_RSACERT, XERO_RSAKEY
-#from tlslite.utils import cryptomath
+from decimal import Decimal
 from tlslite.utils import keyfactory
 from bookkeeping.struct import make_struct
 
@@ -51,8 +51,6 @@ class OAuthSignatureMethod_RSA_SHA1(oauth.SignatureMethod):
         cert = self._fetch_private_cert(oauth_request)
         # Pull the private key from the certificate
         privatekey = keyfactory.parsePrivateKey(cert)
-        # Convert base_string to bytes
-        #base_string_bytes = cryptomath.createByteArraySequence(base_string)
         # Sign using the key
         signed = privatekey.hashAndSign(base_string)
         return binascii.b2a_base64(signed)[:-1]
@@ -91,7 +89,7 @@ def xero_request(url, method='GET', body='', get_parameters=None, headers=None):
         url = "%s?%s" % (url, urllib.urlencode(get_parameters))
 
     response, content = client.request(url, method, body=body, headers={})
-    if response['status'] != '200': # XXX: oder nur fehlercodes?
+    if response['status'] != '200':
         raise RuntimeError("Return code %s for %s" % (response['status'], url))
     return content
 
@@ -105,20 +103,13 @@ def add_orderline(root, description, qty, price, account_code):
     ET.SubElement(lineitem, 'AccountCode').text = account_code
 
 
-def check_invoice(*args, **kwargs):
-    return True
-
-
 def store_invoice(invoice):
     """
     Erzeugt eine (Ausgangs-) Rechnung anhand des Simple Invoice Protocol.
-    Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown
-    
+    Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown    
     """
     
     invoice = make_struct(invoice)
-    if not check_invoice(invoice):
-        raise RuntimeError("Invalid Invoice")
     
     root = ET.Element('Invoices')
     invoice = ET.SubElement(root, 'Invoice')
@@ -162,36 +153,69 @@ def store_invoice(invoice):
     return content
 
 
+def cent_to_euro(cent_ammount):
+    """
+    Berechne den Eurobetrag aus dem Centbetrag
+    
+    >>> cent_to_euro('2317')
+    Decimal('23.17')
+    """
+    
+    euro_ammount = Decimal(cent_ammount) / 100
+    return euro_ammount.quantize(Decimal('.01'))
+
+
 # Fast komplette Kopie von store_invoice
 # Nur die AccountCodes sind unterschiedlich
-def store_hudorainvoice(datum, orderlines, netto=True):
-    """Erzeuge eingehende Rechnung und übertrage zu xero.com"""
+def store_hudorainvoice(invoice, netto=True):
+    """
+    Übertrage eine Eingangsrechnung von HUDORA an Cyberlogi an xero.com
+    
+    Der Rückgabewert ist die xero.com InvoiceID
+    """
+    
+    invoice = make_struct(invoice)
     
     root = ET.Element('Invoices')
-    invoice = ET.SubElement(root, 'Invoice')
-    ET.SubElement(invoice, 'Reference').text = u'Online_%s' % datum
-    ET.SubElement(invoice, 'Type').text = 'ACCPAY'
-    ET.SubElement(invoice, 'Status').text = 'SUBMITTED'
-    ET.SubElement(invoice, 'LineAmountTypes').text = 'Exclusive' if netto else 'Inclusive'
-    ET.SubElement(invoice, 'Date').text = datum.strftime('%Y-%m-%d')
-    ET.SubElement(invoice, 'DueDate').text = (datum + datetime.timedelta(days=30)).strftime('%Y-%m-%d')
+    invoice_element = ET.SubElement(root, 'Invoice')
+    # Reference-Tag kann nur bei Type == 'ACCREC' gesetzt werden
+    # Bei 'ACCPAY' bleibt wohl nur der Weg, die InvoiceNumber zu setzen
+    # ET.SubElement(invoice, 'Reference').text = invoice.guid
     
-    lineitems = ET.SubElement(invoice, 'LineItems')
-
-    versandkosten = 4.0
-    add_orderline(lineitems, 'Paketversand DPD', len(mengen), versandkosten, '4730')
-
-    for item in orderlines:
-        add_orderline(lineitems, u"%s - %s" % (item.artnr, item.text), item.quantity, item.unit_price, '3400')
+    # Die bisherigen Rechnungen hatten als InvoiceNumber "Online_%s" % leistungsdatum
+    # gesetzt.
+    # Das verursacht jedoch Probleme beim Wiederfinden von Rechnungen,
+    # d.h. bei der Überprüfung, ob eine Rechnung schon in xero.com ist
+    # (wenn z.B. kein Lieferdatum gesetzt ist oder es keine Online-Shop-Rechnung ist)
+    
+    ET.SubElement(invoice_element, 'InvoiceNumber').text = invoice.guid
+    ET.SubElement(invoice_element, 'Type').text = 'ACCPAY'
+    ET.SubElement(invoice_element, 'Status').text = 'SUBMITTED'
+    ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Exclusive' if netto else 'Inclusive'
+    ET.SubElement(invoice_element, 'Date').text = invoice.leistungszeitpunkt
+    
+    if invoice.zahlungsziel:
+        timedelta = datetime.timedelta(days=invoice.zahlungsziel)
+    else:
+        timedelta = datetime.timedelta(days=30)
+    leistungsdatum = datetime.datetime.strptime(invoice.leistungszeitpunkt, '%Y-%m-%d')
+    ET.SubElement(invoice_element, 'DueDate').text = (leistungsdatum + timedelta).strftime('%Y-%m-%d')
+    
+    lineitems = ET.SubElement(invoice_element, 'LineItems')
+    
+    for item in invoice.orderlines:
+        item = make_struct(item)
+        # Versandkosten mit spezieller AccountID verbuchen
+        if item.infotext_kunde == 'Versandkosten':
+            add_orderline(lineitems, 'Paketversand DPD', item.menge, cent_to_euro(item.preis / item.menge), '4730')
         
-    for artnr in mengen.keys():
-        lineitem = ET.SubElement(lineitems, 'LineItem')
-        ET.SubElement(lineitem, 'Description').text = "%s - %s" % (artnr, namen.get('artnr', ''))
-        ET.SubElement(lineitem, 'Quantity').text = str(mengen[artnr])
-        ET.SubElement(lineitem, 'UnitAmount').text = str(preise[artnr]/mengen[artnr])
-        ET.SubElement(lineitem, 'AccountCode').text = '3400'
-
-    contact = ET.SubElement(invoice, 'Contact')
+        add_orderline(lineitems,
+                      u"%s - %s" % (item.artnr, item.infotext_kunde),
+                      item.menge,
+                      cent_to_euro(item.preis / item.menge),
+                      '3400')
+    
+    contact = ET.SubElement(invoice_element, 'Contact')
     ET.SubElement(contact, 'Name').text = 'HUDORA GmbH'
     ET.SubElement(contact, 'EmailAddress').text = 'a.jaentsch@hudora.de'
     addresses = ET.SubElement(contact, 'Addresses')
@@ -201,27 +225,63 @@ def store_hudorainvoice(datum, orderlines, netto=True):
     ET.SubElement(address, 'City').text = 'Remscheid'
     ET.SubElement(address, 'PostalCode').text = '42897'
     ET.SubElement(address, 'Country').text = 'DE'
+    
     body = ET.tostring(root, encoding='utf-8')
-
     content = xero_request(URL_BASE, "PUT", body=body, headers={'content-type': 'text/xml; charset=utf-8'})
-    return content
+    tree = ET.fromstring(content)
+    return tree.find('Invoices/Invoice/InvoiceID').text
 
 
-def get_invoice(lieferscheinnr):
+def get_invoice(lieferscheinnr=None, invoice_id=None):
     """
     Liefert eine Rechnung aus Xero zurück.
     
     Wenn keine Rechnung zu der Lieferscheinnummer existiert, wird None zurückgegeben.
     """
     
-    get_parameters = {'where': 'Status!="DELETED"&&Status!="VOIDED"&&Reference=="%s"' % lieferscheinnr}
-    content = xero_request(URL_BASE, get_parameters=get_parameters)
+    if lieferscheinnr is None and invoice_id is None:
+        raise ValueError("lieferscheinnr or invoice_id required")
+    
+    url = URL_BASE    
+    parameters = ['Status!="DELETED"', 'Status!="VOIDED"']
+    
+    if lieferscheinnr:
+        parameters.append('Reference=="%s"' % lieferscheinnr)    
+    if invoice_id:
+        url += '/%s' % invoice_id
+    
+    get_parameters = {'where': "&&".join(parameters)}    
+    content = xero_request(url, get_parameters=get_parameters)
     tree = ET.fromstring(content)
+    
     invoices = []
     for element in tree.getiterator('Invoice'):
         invoice = {}
         for attr in '''Reference Date DueDate Status LineAmountTypes SubTotal TotalTax Total UpdatedDateUTC
                        CurrencyCode InvoiceID InvoiceNumber AmountDue AmountPaid'''.split():
-            invoice[attr] = element.find(attr).text
+            subelement = element.find(attr)
+            if not subelement is None:
+                invoice[attr] = subelement.text
         invoices.append(invoice)
     return invoices
+
+
+def list_eingangsrechnungen(firma):
+    """
+    Ermittle die Eingangsrechnungen von Firma mit namen firma
+    und gib eine Liste der Reference-Elemente zurück.
+    """
+    
+    parameters = ['Type="ACCPAY"', 'Contact.Name="%s"' % firma]
+    return list_invoices(parameters, xpath='Invoices/Invoice/InvoiceNumber')
+
+
+def list_invoices(parameters=None, xpath='Invoices/Invoice/InvoiceID'):
+    """Return list of invoice id"""
+    tmp = ['Status!="DELETED"', 'Status!="VOIDED"']
+    if parameters:
+        tmp.extend(parameters)
+    get_parameters = {'where': "&&".join(tmp)}
+    content = xero_request(URL_BASE, get_parameters=get_parameters)
+    tree = ET.fromstring(content)
+    return [element.text for element in tree.findall(xpath)]

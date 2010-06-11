@@ -47,14 +47,13 @@ def list_invoices(kdnr):
     return husoftm.rechnungen.rechnungen_for_kunde(kdnr)
 
 
-def read_invoice(kdnr, rechnungsnr):
+def get_invoice(rechnungsnr):
     """Erzeuge eine Rechnung im SimpleInvoiceProtocol aus der Rechnung mit der gegebenen Rechnungsnummer"""
     
-    kunde = husoftm.kunden.get_kunde(kdnr)
     rechnungskopf, rechnungspositionen = husoftm.rechnungen.get_rechnung(rechnungsnr)
-    
+    kunde = husoftm.kunden.get_kunde(rechnungskopf['kundennr_warenempfaenger'])
     invoice = {
-        'kundennr': kdnr,
+        'kundennr': rechnungskopf['kundennr_warenempfaenger'],
         'name1': kunde.name1,
         'name2': kunde.name2,
         'strasse': kunde.strasse,
@@ -64,22 +63,25 @@ def read_invoice(kdnr, rechnungsnr):
         'tel': kunde.tel,
         'mail': kunde.mail,
         'iln': kunde.iln,
-        
-        'guid': str(uuid4()),
-        'leistungszeitpunkt': datetime.date.today().strftime('%Y-%m-%dT%H:%M:%S'),
-        # 'versandkosten': int(400 / 1.19), # werden als Rechnungsposten aufgeführt!
+        'kundenauftragsnr': rechnungskopf['kundenauftragsnr'],
+        'guid': rechnungskopf['rechnungsnr'], # str(uuid4())
+        'zahlungsziel': 30,
         'absenderadresse': ABSENDER_ADRESSE,
         'preis': int(rechnungskopf['netto'] * 100),
         'orderlines': [],
     }
     
+    if rechnungskopf.get('versand_date', None):
+        print "versand_date: >%s<" % rechnungskopf['versand_date']
+        invoice['leistungszeitpunkt'] = rechnungskopf['versand_date'].strftime('%Y-%m-%d')
+    
+    
     for index, position in enumerate(rechnungspositionen):
         invoice['orderlines'].append({'guid': '%s-%d' % (invoice['guid'], index),
-                                      'menge': position['menge'],
+                                      'menge': int(position['menge']),
                                       'artnr': position['artnr'],
                                       'infotext_kunde': position['text'],
-                                      'infotext_kunde': '',
-                                      'preis': int(position['wert_netto'] / Decimal("1.19")),
+                                      'preis': int(position['wert_netto'] * 100),
                                      })
     return invoice
 

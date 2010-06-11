@@ -8,7 +8,7 @@ Copyright (c) 2010 HUDORA. All rights reserved."""
 
 # siehe http://stackoverflow.com/questions/1305532/convert-python-dict-to-object
 class Struct(object):
-    def __init__(self, **entries): 
+    def __init__(self, entries): 
         self.__dict__.update(entries)
         self.default = None
 
