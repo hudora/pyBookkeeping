@@ -5,6 +5,7 @@ pyBookkeeping - Functionality related to bookkeeping
 """
 
 from setuptools import setup, find_packages
+import codecs
 
 setup(name='pyBookkeeping',
       # maintainer='XXX',
