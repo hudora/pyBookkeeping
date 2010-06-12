@@ -8,20 +8,27 @@ Created by Maximillian Dornseif on 2010-06-04.
 Copyright (c) 2010 HUDORA. All rights reserved.
 """
 
-from cs.keychain import XERO_CONSUMER_KEY, XERO_CONSUMER_SECRET, XERO_RSACERT, XERO_RSAKEY
-from tlslite.utils import cryptomath
-from tlslite.utils import keyfactory
+import base64
 import binascii
-import bookkeeping.abstract
 import datetime
 import oauth2 as oauth
+import urllib
 import xml.etree.ElementTree as ET
+from cs.keychain import XERO_CONSUMER_KEY, XERO_CONSUMER_SECRET, XERO_RSACERT, XERO_RSAKEY
+from decimal import Decimal
+from tlslite.utils import keyfactory
+from bookkeeping.struct import make_struct
 
-# OAuthSignatureMethod_RSA_SHA1 is from
-# http://gdata-python-client.googlecode.com/svn-history/r576/trunk/src/gdata/oauth/rsa.py
+
+URL_BASE = 'https://api.xero.com/api.xro/2.0/Invoices'
 
 
 class OAuthSignatureMethod_RSA_SHA1(oauth.SignatureMethod):
+    """
+    OAuthSignatureMethod_RSA_SHA1, siehe
+    http://gdata-python-client.googlecode.com/svn-history/r576/trunk/src/gdata/oauth/rsa.py
+    """
+    
     name = "RSA-SHA1"
 
     def _fetch_public_cert(self, oauth_request):
@@ -30,191 +37,253 @@ class OAuthSignatureMethod_RSA_SHA1(oauth.SignatureMethod):
     def _fetch_private_cert(self, oauth_request):
         raise NotImplementedError
 
-    def build_signature_base_string(self, oauth_request, consumer, token):
-          sig = (
-              oauth.escape(oauth_request.method),
-              oauth.escape(oauth_request.normalized_url),
-              oauth.escape(oauth_request.get_normalized_parameters()),
-          )
-          key = ''
-          raw = '&'.join(sig)
-          return key, raw
+    def build_signature_base_string(self, oauth_request, consumer, token): # XXX consumer und token ungenutzt?
+        sig = (oauth.escape(oauth_request.method),
+               oauth.escape(oauth_request.normalized_url),
+               oauth.escape(oauth_request.get_normalized_parameters()),
+              )
+        raw = '&'.join(sig)
+        return raw
 
     def sign(self, oauth_request, consumer, token):
         """Builds the base signature string."""
-        key, base_string = self.build_signature_base_string(oauth_request, consumer, token)
+        base_string = self.build_signature_base_string(oauth_request, consumer, token)
         # Fetch the private key cert based on the request
         cert = self._fetch_private_cert(oauth_request)
         # Pull the private key from the certificate
         privatekey = keyfactory.parsePrivateKey(cert)
-        # Convert base_string to bytes
-        #base_string_bytes = cryptomath.createByteArraySequence(base_string)
         # Sign using the key
         signed = privatekey.hashAndSign(base_string)
         return binascii.b2a_base64(signed)[:-1]
 
     def check_signature(self, oauth_request, consumer, token, signature):
         decoded_sig = base64.b64decode(signature)
-        key, base_string = self.build_signature_base_string(oauth_request, consumer, token)
+        base_string = self.build_signature_base_string(oauth_request, consumer, token)
         # Fetch the public key cert based on the request
         cert = self._fetch_public_cert(oauth_request)
         # Pull the public key from the certificate
         publickey = keyfactory.parsePEMKey(cert, public=True)
         # Check the signature
-        ok = publickey.hashAndVerify(decoded_sig, base_string)
-        return ok
+        valid = publickey.hashAndVerify(decoded_sig, base_string)
+        return valid
 
 
 class XeroOAuthSignatureMethod_RSA_SHA1(OAuthSignatureMethod_RSA_SHA1):
-  def _fetch_public_cert(self, oauth_request):
-    return XERO_RSACERT
+    def _fetch_public_cert(self, oauth_request):
+        return XERO_RSACERT
 
-  def _fetch_private_cert(self, oauth_request):
-    return XERO_RSAKEY
+    def _fetch_private_cert(self, oauth_request):
+        return XERO_RSAKEY
 
 
-def xero_request(url, method="GET", body='', getparameters={}):
-    # Xero want Two-legged OAuth which useds the same key in both stages.
+def xero_request(url, method='GET', body='', get_parameters=None, headers=None):
+    """Request an xero durchführen"""
+    
     consumer = oauth.Consumer(key=XERO_CONSUMER_KEY, secret=XERO_CONSUMER_SECRET)
     client = oauth.Client(consumer, token=oauth.Token(key=XERO_CONSUMER_KEY, secret=XERO_CONSUMER_SECRET))
     client.set_signature_method(XeroOAuthSignatureMethod_RSA_SHA1())
-    url = "%s?%s" % (url, urllib.urlencode(getparameters))
-    resp, content = client.request(url, Method, body=body, headers={'content-type': 'text/xml; charset=utf-8'})
-    if not resp['status'] == '200':
-        print url
-        print body
-        print resp
-        print content
-        raise RuntimeError
-    print content
+    
+    if headers is None:
+        headers = {}
+
+    if not get_parameters is None:
+        url = "%s?%s" % (url, urllib.urlencode(get_parameters))
+
+    response, content = client.request(url, method, body=body, headers={})
+    if response['status'] != '200':
+        raise RuntimeError("Return code %s for %s" % (response['status'], url))
+    return content
 
 
-# siehe http://stackoverflow.com/questions/1305532/convert-python-dict-to-object
-class Struct(object):
-    def __init__(self, **entries): 
-        self.__dict__.update(entries)
+def add_orderline(root, description, qty, price, account_code):
+    """Füge Orderline zu XML-Baum hinzu"""
+    lineitem = ET.SubElement(root, 'LineItem')
+    ET.SubElement(lineitem, 'Description').text = description
+    ET.SubElement(lineitem, 'Quantity').text = str(qty)
+    ET.SubElement(lineitem, 'UnitAmount').text = str(price)
+    ET.SubElement(lineitem, 'AccountCode').text = account_code
 
-    def __getattr__(self, name):
-        return None
 
-
-def make_struct(obj):
-    """Converts a dict to an Object, leaves an Object untouched.
-    Read Only!
+def store_invoice(invoice):
     """
-    if not hasattr(obj, '__dict__'):
-        return Struct(obv)
-    return obj
+    Erzeugt eine (Ausgangs-) Rechnung anhand des Simple Invoice Protocol.
+    Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown    
+    """
+    
+    invoice = make_struct(invoice)    
+    root = ET.Element('Invoices')
+    invoice_element = ET.SubElement(root, 'Invoice')
+    ET.SubElement(invoice_element, 'Type').text = 'ACCREC'
+    ET.SubElement(invoice_element, 'Status').text = 'SUBMITTED'
+    ET.SubElement(invoice_element, 'Date').text = invoice.leistungszeitpunkt
+    ET.SubElement(invoice_element, 'InvoiceNumber').text = invoice.guid
+
+    if invoice.zahlungsziel:
+        timedelta = datetime.timedelta(days=invoice.zahlungsziel)
+        ET.SubElement(invoice_element, 'DueDate').text = (invoice.leistungszeitpunkt + timedelta).strftime('%Y-%m-%d')
+
+    if invoice.kundenauftragsnr:
+        ET.SubElement(invoice_element, 'Reference').text = invoice.kundenauftragsnr
+    ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Exclusive'
+
+    # Füge die ConsignmentItems und die Versandkosten hinzu
+    lineitems = ET.SubElement(invoice_element, 'LineItems')
+    for item in invoice.orderlines:
+        item = make_struct(item) # XXX rekursives Verhalten mit in make_struct packen
+        add_orderline(lineitems, u"%s - %s" % (item.artnr, item.guid), item.menge, item.preis, '200')
+    add_orderline(lineitems, 'Verpackung & Versand', 1, invoice.versandkosten, '201')
+    
+    # Adressdaten
+    contact = ET.SubElement(invoice_element, 'Contact')
+    ET.SubElement(contact, 'Name').text = ' '.join([invoice.name1, invoice.name2])
+    ET.SubElement(contact, 'EmailAddress').text = invoice.email
+    addresses = ET.SubElement(contact, 'Addresses')
+    address = ET.SubElement(addresses, 'Address')
+    ET.SubElement(address, 'AddressType').text = 'STREET'
+    ET.SubElement(address, 'AttentionTo').text = invoice.name1
+    
+    if invoice.name2:
+        ET.SubElement(address, 'AddressLine1').text = invoice.name2
+    
+    ET.SubElement(address, 'City').text = invoice.ort   
+    ET.SubElement(address, 'PostalCode').text = invoice.plz
+    ET.SubElement(address, 'Country').text = invoice.land
+    body = ET.tostring(root, encoding='utf-8')
+
+    content = xero_request(URL_BASE, "PUT", body=body, headers={'content-type': 'text/xml; charset=utf-8'})
+    tree = ET.fromstring(content)
+    return tree.find('Invoices/Invoice/InvoiceID').text
 
 
-class CyberlogiBookkeeping(bookkeeping.abstrct.AbsrtactBookkeeping):
-    def store_invoice(self, originvoice):
-        """Erzeugt eine (Ausgangs-) Rechnung anhand Simple Incoice Protocol.
-        Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown"""
+def cent_to_euro(cent_ammount):
+    """
+    Berechne den Eurobetrag aus dem Centbetrag
+    
+    >>> cent_to_euro('2317')
+    Decimal('23.17')
+    """
+    
+    euro_ammount = Decimal(cent_ammount) / 100
+    return euro_ammount.quantize(Decimal('.01'))
 
-        self.check_invoice(originvoice)
-        invoice = make_struct(originvoice)
-        root = ET.Element('Invoices')
-        invoice = ET.SubElement(root, 'Invoice')
-        ET.SubElement(invoice, 'Type').text = 'ACCREC'  # Accounts receivable
-        ET.SubElement(invoice, 'Status').text = 'SUBMITTED'
-        ET.SubElement(invoice, 'Date').text = invoice.leistungsdatum
-        ET.SubElement(invoice, 'InvoiceNumber').text = invoice.guid
-        if invoice.zahlungsziel:
-            ET.SubElement(invoice, 'DueDate').text = (invoice.leistungsdatum + datetime.timedelta(days=invoice.zahlungsziel)).strftime('%Y-%m-%d')
-        if invoice.kundenauftragsnr:
-            ET.SubElement(invoice, 'Reference').text = invoice.kundenauftragsnr
-        ET.SubElement(invoice, 'LineAmountTypes').text = 'Exclusive'
 
-* *infotext_kunde* - Freitext, der sich an den WarenempfC$nger richtet. Kann z.B. auf der Rechnung
-  angedruckt werden. Der Umbruch des Textes kann durch das Backendsystem beliebig erfolgen, deshalb sollte
-  der Text keine ZeilenumbrC<che beinhalten. Erscheint mC6glicherweise auch nicht.
-* *kundennr* Interne Kundennummer. Kann das [AddressProtocol][2] erweitern. Wenn eine `kundennr`
-  angegeben ist und die per [AddressProtocol][2] angegebene Lieferadresse nicht zu der `kundennr` passt,
-  handelt es sich um eine abweichende Lieferadresse.
-* *absenderadresse* - (mehrzeiliger) String, der die Absenderadresse auf Rechnungen codiert. Solte auch
-  die UStID des Absenders enthalten.
-* *erfasst_von* - Name der Person oder des Prozesses (bei EDI), der den Auftrag in das System eingespeist hat
-* *preis* - Rechnungs-Gesammt-Preis der Orderline in Cent ohne Mehrwertsteuer.
-
-        lineitems = ET.SubElement(invoice, 'LineItems')
-        for orderline in invoice['orderlines']:
-            lineitem = ET.SubElement(lineitems, 'LineItem')
-            ET.SubElement(lineitem, 'Description').text = ' - '.join(orderline.get('artnr'), orderline.get('infotext_kunde'), orderline.get('ean'))
-            ET.SubElement(lineitem, 'Quantity').text = orderline['menge']
-            ET.SubElement(lineitem, 'UnitAmount').text = str(orderline['preis'])
-            ET.SubElement(lineitem, 'AccountCode').text = '200' # Sales
-            # orderline/guid
+# Fast komplette Kopie von store_invoice
+# Nur die AccountCodes sind unterschiedlich
+def store_hudorainvoice(invoice, netto=True):
+    """
+    Übertrage eine Eingangsrechnung von HUDORA an Cyberlogi an xero.com
+    
+    Der Rückgabewert ist die xero.com InvoiceID
+    """
+    
+    invoice = make_struct(invoice)
+    
+    root = ET.Element('Invoices')
+    invoice_element = ET.SubElement(root, 'Invoice')
+    # Reference-Tag kann nur bei Type == 'ACCREC' gesetzt werden
+    # Bei 'ACCPAY' bleibt wohl nur der Weg, die InvoiceNumber zu setzen
+    # ET.SubElement(invoice, 'Reference').text = invoice.guid
+    
+    # Die bisherigen Rechnungen hatten als InvoiceNumber "Online_%s" % leistungsdatum
+    # gesetzt.
+    # Das verursacht jedoch Probleme beim Wiederfinden von Rechnungen,
+    # d.h. bei der Überprüfung, ob eine Rechnung schon in xero.com ist
+    # (wenn z.B. kein Lieferdatum gesetzt ist oder es keine Online-Shop-Rechnung ist)
+    
+    ET.SubElement(invoice_element, 'InvoiceNumber').text = invoice.guid
+    ET.SubElement(invoice_element, 'Type').text = 'ACCPAY'
+    ET.SubElement(invoice_element, 'Status').text = 'SUBMITTED'
+    ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Exclusive' if netto else 'Inclusive'
+    ET.SubElement(invoice_element, 'Date').text = invoice.leistungszeitpunkt
+    
+    if invoice.zahlungsziel:
+        timedelta = datetime.timedelta(days=invoice.zahlungsziel)
+    else:
+        timedelta = datetime.timedelta(days=30)
+    leistungsdatum = datetime.datetime.strptime(invoice.leistungszeitpunkt, '%Y-%m-%d')
+    ET.SubElement(invoice_element, 'DueDate').text = (leistungsdatum + timedelta).strftime('%Y-%m-%d')
+    
+    lineitems = ET.SubElement(invoice_element, 'LineItems')
+    
+    for item in invoice.orderlines:
+        item = make_struct(item)
+        # Versandkosten mit spezieller AccountID verbuchen
+        if item.infotext_kunde == 'Versandkosten':
+            add_orderline(lineitems, 'Paketversand DPD', item.menge, cent_to_euro(item.preis / item.menge), '4730')
         
-        lineitem = ET.SubElement(lineitems, 'LineItem')
-        ET.SubElement(lineitem, 'Description').text = 'Verpackung & Versand'
-        ET.SubElement(lineitem, 'Quantity').text = '1'
-        ET.SubElement(lineitem, 'UnitAmount').text = str(consignment.versandkosten)
-        ET.SubElement(lineitem, 'AccountCode').text = '201'
-* *versandkosten* - Versandkosten in Cent ohne Mehrwertsteuer
-        
-        contact = ET.SubElement(invoice, 'Contact')
-        ET.SubElement(contact, 'Name').text = ' '.join([c.name1, c.name2])
-        ET.SubElement(contact, 'EmailAddress').text = c.email
-        addresses = ET.SubElement(contact, 'Addresses')
-        address = ET.SubElement(addresses, 'Address')
-        ET.SubElement(address, 'AddressType').text = 'STREET'
-        ET.SubElement(address, 'AttentionTo').text = c.name1
-        if c.name2:
-            ET.SubElement(address, 'AddressLine1').text = c.name2
-        ET.SubElement(address, 'City').text = c.ort   
-        ET.SubElement(address, 'PostalCode').text = c.plz
-        ET.SubElement(address, 'Country').text = c.land
-        #  <Phones>
-        #    <Phone>
-        #      <PhoneType>DEFAULT</PhoneType>
-        #      <PhoneNumber>07131-1231483</PhoneNumber>
-        body = ET.tostring(root, encoding='utf-8')
-        
-        CONSUMER_KEY = 'OTNMNMQYYJE3NJA3NDA3ZWE0N2IZMG'
-        CONSUMER_SECRET = 'CIJBNG9RMALDWJBYCKXIZJ2CQF1TTH'
-        
-        # Create your consumer with the proper key/secret.
-        consumer = oauth.Consumer(key=CONSUMER_KEY, secret=CONSUMER_SECRET)
-        # Create our client.
-        client = oauth.Client(consumer, token=oauth.Token(key=CONSUMER_KEY, secret=CONSUMER_SECRET))
-        client.set_signature_method(XeroOAuthSignatureMethod_RSA_SHA1())
-        # The OAuth Client request works just like httplib2 for the most part.
-        #resp, content = client.request(REQUEST_TOKEN_URL, "POST")
-        urlbase = 'https://api.xero.com/api.xro/2.0/Invoices'
-        url = urlbase
-        resp, content = client.request(url, "PUT", body=body, headers={'content-type': 'text/xml; charset=utf-8'})
-        if not resp['status'] == '200':
-            print url
-            print body
-            print resp
-            print content
-            raise RuntimeError
-        print content
+        add_orderline(lineitems,
+                      u"%s - %s" % (item.artnr, item.infotext_kunde),
+                      item.menge,
+                      cent_to_euro(item.preis / item.menge),
+                      '3400')
+    
+    contact = ET.SubElement(invoice_element, 'Contact')
+    ET.SubElement(contact, 'Name').text = 'HUDORA GmbH'
+    ET.SubElement(contact, 'EmailAddress').text = 'a.jaentsch@hudora.de'
+    addresses = ET.SubElement(contact, 'Addresses')
+    address = ET.SubElement(addresses, 'Address')
+    ET.SubElement(address, 'AddressType').text = 'STREET'
+    ET.SubElement(address, 'AttentionTo').text = 'Buchhaltung'
+    ET.SubElement(address, 'City').text = 'Remscheid'
+    ET.SubElement(address, 'PostalCode').text = '42897'
+    ET.SubElement(address, 'Country').text = 'DE'
+    
+    body = ET.tostring(root, encoding='utf-8')
+    content = xero_request(URL_BASE, "PUT", body=body, headers={'content-type': 'text/xml; charset=utf-8'})
+    tree = ET.fromstring(content)
+    return tree.find('Invoices/Invoice/InvoiceID').text
 
 
+def get_invoice(lieferscheinnr=None, invoice_id=None):
+    """
+    Liefert eine Rechnung aus Xero zurück.
+    
+    Wenn keine Rechnung zu der Lieferscheinnummer existiert, wird None zurückgegeben.
+    """
+    
+    if lieferscheinnr is None and invoice_id is None:
+        raise ValueError("lieferscheinnr or invoice_id required")
+    
+    url = URL_BASE    
+    parameters = ['Status!="DELETED"', 'Status!="VOIDED"']
+    
+    if lieferscheinnr:
+        parameters.append('Reference=="%s"' % lieferscheinnr)    
+    if invoice_id:
+        url += '/%s' % invoice_id
+    
+    get_parameters = {'where': "&&".join(parameters)}    
+    content = xero_request(url, get_parameters=get_parameters)
+    tree = ET.fromstring(content)
+    
+    invoices = []
+    for element in tree.getiterator('Invoice'):
+        invoice = {}
+        for attr in '''Reference Date DueDate Status LineAmountTypes SubTotal TotalTax Total UpdatedDateUTC
+                       CurrencyCode InvoiceID InvoiceNumber AmountDue AmountPaid'''.split():
+            subelement = element.find(attr)
+            if not subelement is None:
+                invoice[attr] = subelement.text
+        invoices.append(invoice)
+    return invoices
 
-## Per Order
 
-* _kundenauftragsnr_ - Freitext, den der Kunde bei der Bestellung mit angegeben hat, ca. 20 Zeichen.
-* *infotext_kunde* - Freitext, der sich an den Warenempfänger richtet. Kann z.B. auf einem Lieferschein angedruckt werden. Der Umbruch des Textes kann durch das Backendsystem beliebig erfolgen, deshalb sollte der Text keine Zeilenumbrüche beinhalten.
-* _kundennr_ Interne Kundennummer. Kann das [AddressProtocol][2] erweitern. Wenn eine `kundennr`
-  angegeben ist und die per [AddressProtocol][2] angegebene Lieferadresse nicht zu der `kundennr` passt,
-  handelt es sich um eine abweichende Lieferadresse.
-* _versandkosten_ - Versandkosten in Cent ohne Mehrwertsteuer
-* _absenderadresse_ - (mehrzeiliger) String, der die Absenderadresse auf Versandpapieren codiert.
-* *erfasst_von* - Name der Person oder des Prozesses (bei EDI), der den Auftrag in das System eingespeist hat.
-
-[2]: http://github.com/hudora/huTools/blob/master/doc/standards/address_protocol.markdown
+def list_eingangsrechnungen(firma):
+    """
+    Ermittle die Eingangsrechnungen von Firma mit namen firma
+    und gib eine Liste der Reference-Elemente zurück.
+    """
+    
+    parameters = ['Type="ACCPAY"', 'Contact.Name="%s"' % firma]
+    return list_invoices(parameters, xpath='Invoices/Invoice/InvoiceNumber')
 
 
-## Pro Orderline
-* **orderline/guid** - Eindeutiger ID der Position. GUID des Auftrags + Positionsnummer funktionieren ganz gut.
-* **orderline/menge** - Menge des durch *ean* bezeichneten Artikels, die versendet werden soll.
-* **orderline/ean** - EAN des zu versendenen Artikels.
-* **orderline/artnr** - Kann als Alternative zur EAN angegeben werden.
-* *orderline/infotext_kunde* - Freitext, der sich an den Warenempfänger richtet. Wird nicht bei allen
-  Versandwegen angedruckt.
-* _orderline/preis_ - Rechnungs-Preis der Orderline in Cent ohne Mehrwertsteuer.
-
-[3]: http://www.ietf.org/rfc/rfc3339.txt
+def list_invoices(parameters=None, xpath='Invoices/Invoice/InvoiceID'):
+    """Return list of invoice id"""
+    tmp = ['Status!="DELETED"', 'Status!="VOIDED"']
+    if parameters:
+        tmp.extend(parameters)
+    get_parameters = {'where': "&&".join(tmp)}
+    content = xero_request(URL_BASE, get_parameters=get_parameters)
+    tree = ET.fromstring(content)
+    return [element.text for element in tree.findall(xpath)]

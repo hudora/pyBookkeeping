@@ -1,3 +1,5 @@
 oauth2
 tlslite
 -e git+ssh://git@github.com/hudora/CentralServices#egg=cs
+-e git+ssh://git@github.com/hudora/huSoftM#egg=huSoftM
+-e git+ssh://git@github.com/hudora/hudoratools#egg=hudoratools
