@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # encoding: utf-8
-"""%%PROJECTNAME%% is xXXXx
+"""pyBookkeeping implements misc functionality to access bookkeeping systems,
+most prominentely xero.com.
 """
 
 # setup.py
@@ -9,18 +10,16 @@
 
 from setuptools import setup, find_packages
 
-setup(name='%%PROJECTNAME%%',
-      # maintainer='XXX',
-      # maintainer_email='xXXXx@hudora.de',
+setup(name='pyBookkeeping',
+      maintainer='Maximillian Dornseif',
+      maintainer_email='md@hudora.de',
       version='1.0',
       description='xXXXx FILL IN HERE xXXXx',
       long_description=long_description=codecs.open('README.rst', "r", "utf-8").read(),
       classifiers=['License :: OSI Approved :: BSD License',
                    'Intended Audience :: Developers',
                    'Programming Language :: Python'],
-      download_url='https://cybernetics.hudora.biz/nonpublic/eggs/',
-      package_data={"%%MODULENAME%%": ["templates/%%MODULENAME%%/*.html", "reports/*.jrxml", "bin/*"]},
       packages=find_packages(),
       include_package_data=True,
-      install_requires=['huTools', 'huDjango'],
+      install_requires=['oauth2', 'tlslite'],
 )
