@@ -104,7 +104,7 @@ def add_orderline(root, description, qty, price, account_code):
 
 
 
-def store_invoice(invoice):
+def store_invoice(invoice, draft=False):
     """
     Erzeugt eine (Ausgangs-) Rechnung anhand des Simple Invoice Protocol.
     Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown    
@@ -113,8 +113,8 @@ def store_invoice(invoice):
     invoice = make_struct(invoice)    
     root = ET.Element('Invoices')
     invoice = ET.SubElement(root, 'Invoice')
-    ET.SubElement(invoice, 'Type').text = 'ACCREC'
-    ET.SubElement(invoice, 'Status').text = 'SUBMITTED'
+    ET.SubElement(invoice, 'Type').text = 'ACCREC'    
+    ET.SubElement(invoice, 'Status').text = 'DRAFT' if draft else 'SUBMITTED'
     ET.SubElement(invoice, 'Date').text = consignment.leistungszeitpunkt
     ET.SubElement(invoice, 'InvoiceNumber').text = consignment.guid
 
