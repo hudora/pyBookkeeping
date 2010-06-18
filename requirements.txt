@@ -1,7 +1,6 @@
-# add names of required Python modules here
-Django==1.1.2
-python-memcached
 oauth2
 tlslite
 git+ssh://git@github.com/hudora/huSoftM>=0.62
+-e git+ssh://git@github.com/hudora/CentralServices#egg=cs
+-e git+ssh://git@github.com/hudora/huSoftM#egg=huSoftM
 -e git+ssh://git@github.com/hudora/hudoratools#egg=hudoratools

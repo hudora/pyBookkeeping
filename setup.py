@@ -1,22 +1,23 @@
 #!/usr/bin/env python
 # encoding: utf-8
-"""
-pyBookkeeping - Functionality related to bookkeeping
+
+"""pyBookkeeping implements misc functionality to access bookkeeping systems,
+most prominentely xero.com.
 """
 
 from setuptools import setup, find_packages
 import codecs
 
 setup(name='pyBookkeeping',
-      # maintainer='XXX',
-      # maintainer_email='xXXXx@hudora.de',
-      version='0.1',
+      maintainer='Maximillian Dornseif',
+      maintainer_email='md@hudora.de',
+      version='1.0p1',
       description='Buchhaltungsfunktionen',
-      long_description=codecs.open('README.rst', "r", "utf-8").read(),
+      long_description=long_description=codecs.open('README.rst', "r", "utf-8").read(),
       classifiers=['License :: OSI Approved :: BSD License',
                    'Intended Audience :: Developers',
                    'Programming Language :: Python'],
-      download_url='https://cybernetics.hudora.biz/nonpublic/eggs/',
       packages=find_packages(),
+      include_package_data=True,
       install_requires=['oauth2', 'cs>=0.11', 'tlslite', 'huSoftM'],
 )

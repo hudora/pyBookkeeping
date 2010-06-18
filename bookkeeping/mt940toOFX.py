@@ -8,6 +8,7 @@ Created by Maximillian Dornseif on 2010-06-05.
 Copyright (c) 2010 HUDORA. All rights reserved.
 """
 
+# TODO: eine ausgabedatei pro eingabedatei
 
 
 import datetime
@@ -29,7 +30,12 @@ def parse_mt940(data):
                 nextline = nextline + lines.pop(0).strip('\r\n')
             if not nextline:
                 continue
-            dummy, typ, data = nextline.split(':')
+            try:
+                dummy, typ, data = nextline.split(':')
+            except:
+                print repr(nextline)
+                raise
+            quellblz = quellkonto = ''
             if typ == '20':
                 transaction_reference_number = data
             elif typ == '25':
@@ -107,8 +113,8 @@ def parse_mt940(data):
     return auszuege
 
 
-def write_ofx(account, vorgaenge):
-    transaction_guid = '%s-%s' % (account, int(time.mktime(time.localtime())))
+def write_ofx(account, vorgaenge, inputname):
+    transaction_guid = '%s-%s' % (account, inputname)
     root = ET.Element('OFX')
     signonmsgsrsv1 = ET.SubElement(root, 'SIGNONMSGSRSV1')
     sonrs = ET.SubElement(signonmsgsrsv1, 'SONRS')
@@ -147,7 +153,7 @@ def write_ofx(account, vorgaenge):
             # reference/Check number, A-12
             ET.SubElement(stmttrn, 'CHECKNUM').text = verwendungszweck
         # PAYEE
-        ET.SubElement(stmttrn, 'NAME').text = absender
+        ET.SubElement(stmttrn, 'NAME').text = absender.strip()
         # Format: A-255 for <MEMO>, used in V1 message sets A <MEMO> provides additional information about a transaction.
         ET.SubElement(stmttrn, 'MEMO').text = (' '.join([verwendungszweck, description]))[:254]
     
@@ -163,7 +169,7 @@ NEWFILEUID:NONE
 
 """
     body = ET.tostring(root, encoding='utf-8')
-    fname = 'auszug_%s_%s.ofx' % (datetime.date.today(), account.replace('/','.'))
+    fname = 'auszug_%s_%s_%s.ofx' % (datetime.date.today(), inputname, account.replace('/','.'))
     print "writing %s" % fname
     fd = open(fname, 'w')
     fd.write(header)
@@ -175,17 +181,18 @@ path = './'
 if len(sys.argv) > 1:
     path = sys.argv[1]
 
-data = []
 for fname in [x for x in os.listdir(path) if x.endswith('.sta')]:
+    data = []
+    print 'processing %s' % os.path.join(path, fname)
     data.append(open(os.path.join(path, fname)).read())
+    data = '\n\n'.join(data)
 
-if not data:
-    print "nothing found matching %s" % os.path.join(path, '*.sta')
-    sys.exit(1)
+    if not data:
+        print "nothing found matching %s" % os.path.join(path, '*.sta')
+        sys.exit(1)
 
-data = '\n\n'.join(data)
+    auszuege = parse_mt940(data)
+    fname, extension = os.path.splitext(fname)
 
-auszuege = parse_mt940(data)
-
-for account in auszuege:
-    write_ofx(account, auszuege[account])
+    for account in auszuege:
+        write_ofx(account, auszuege[account], fname)
