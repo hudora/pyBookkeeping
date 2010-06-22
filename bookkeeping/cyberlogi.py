@@ -116,11 +116,12 @@ def store_invoice(invoice, tax_included=False, draft=False):
     ET.SubElement(invoice_element, 'Type').text = 'ACCREC'    
     ET.SubElement(invoice_element, 'Status').text = 'DRAFT' if draft else 'SUBMITTED'
     ET.SubElement(invoice_element, 'Date').text = invoice.leistungszeitpunkt
-    ET.SubElement(invoice_element, 'InvoiceNumber').text = invoice.guid
+    ET.SubElement(invoice_element, 'Reference').text = invoice.guid
 
     if invoice.zahlungsziel:
+        leistungszeitpunkt = datetime.datetime.strptime(invoice.leistungszeitpunkt, '%Y-%m-%d')
         timedelta = datetime.timedelta(days=invoice.zahlungsziel)
-        ET.SubElement(invoice_element, 'DueDate').text = (invoice.leistungszeitpunkt + timedelta).strftime('%Y-%m-%d')
+        ET.SubElement(invoice_element, 'DueDate').text = (leistungszeitpunkt + timedelta).strftime('%Y-%m-%d')
 
     if invoice.kundenauftragsnr:
         ET.SubElement(invoice_element, 'Reference').text = invoice.kundenauftragsnr
@@ -149,7 +150,7 @@ def store_invoice(invoice, tax_included=False, draft=False):
     ET.SubElement(address, 'PostalCode').text = invoice.plz
     ET.SubElement(address, 'Country').text = invoice.land
     body = ET.tostring(root, encoding='utf-8')
-
+    
     content = xero_request(URL_BASE, "PUT", body=body, headers={'content-type': 'text/xml; charset=utf-8'})
     tree = ET.fromstring(content)
     return tree.find('Invoices/Invoice/InvoiceID').text
@@ -175,6 +176,10 @@ def store_hudorainvoice(invoice, netto=True):
     
     Der Rückgabewert ist die xero.com InvoiceID
     """
+    
+    SKONTO_ACCOUNT = '2xx'
+    VERSANDKOSTEN_ACCOUNT = '4730'
+    WAREN_ACCOUNT = '3400'
     
     invoice = make_struct(invoice)
     
@@ -204,18 +209,27 @@ def store_hudorainvoice(invoice, netto=True):
     ET.SubElement(invoice_element, 'DueDate').text = (leistungsdatum + timedelta).strftime('%Y-%m-%d')
     
     lineitems = ET.SubElement(invoice_element, 'LineItems')
+
+    # Kundenauftragsnummer als Orderline hinzufügen
+    if invoice.kundenauftragsnr:
+        add_orderline(lineitems, "Kundenauftragsnr: %s" % kundenauftragsnr, 0, 0, '')    
     
+    total = Decimal(0)
     for item in invoice.orderlines:
         item = make_struct(item)
-        # Versandkosten mit spezieller AccountID verbuchen
-        if item.infotext_kunde == 'Versandkosten':
-            add_orderline(lineitems, 'Paketversand DPD', item.menge, cent_to_euro(item.preis / item.menge), '4730')
         
-        add_orderline(lineitems,
-                      u"%s - %s" % (item.artnr, item.infotext_kunde),
-                      item.menge,
-                      cent_to_euro(item.preis / item.menge),
-                      '3400')
+        # Versandkosten mit spezieller AccountID verbuchen
+        if 'ersandkosten' in item.infotext_kunde:
+            add_orderline(lineitems, 'Paketversand DPD', item.menge, cent_to_euro(item.preis / item.menge), VERSANDKOSTEN_ACCOUNT)
+        else:
+            add_orderline(lineitems, u"%s - %s" % (item.artnr, item.infotext_kunde), item.menge,
+                          cent_to_euro(item.preis / item.menge), WAREN_ACCOUNT)
+                      
+        total += item.preis
+    
+    # 2 Prozent Skonto innerhalb von 8 Tagen
+    add_orderline(lineitems, 'Skonto bis %s' % (datetime.date.today() + datetime.timedelta(days=8)).strftime('%Y-%m-%d'),
+                             '0.02', -total, SKONTO_ACCOUNT)
     
     contact = ET.SubElement(invoice_element, 'Contact')
     ET.SubElement(contact, 'Name').text = 'HUDORA GmbH'

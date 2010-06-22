@@ -19,13 +19,6 @@ from bookkeeping.struct import make_struct
 ABSENDER_ADRESSE = u"HUDORA GmbH\nJägerwald 13\nD-42897 Remscheid"
 
 
-# XXX
-def check_order(order):
-    return True
-
-def store_invoice(invoice):
-    raise NotImplementedError
-
 def store_order(order):
     """
     Schreibe einen Auftrag in die SoftM-Stapelschnittstelle.
@@ -64,7 +57,7 @@ def get_invoice(rechnungsnr):
         'mail': kunde.mail,
         'iln': kunde.iln,
         'kundenauftragsnr': rechnungskopf['kundenauftragsnr'],
-        'guid': rechnungskopf['rechnungsnr'], # str(uuid4())
+        'guid': rechnungskopf['rechnungsnr'],
         'zahlungsziel': 30,
         'absenderadresse': ABSENDER_ADRESSE,
         'preis': int(rechnungskopf['netto'] * 100),
@@ -72,7 +65,6 @@ def get_invoice(rechnungsnr):
     }
     
     if rechnungskopf.get('versand_date', None):
-        print "versand_date: >%s<" % rechnungskopf['versand_date']
         invoice['leistungszeitpunkt'] = rechnungskopf['versand_date'].strftime('%Y-%m-%d')
     
     
