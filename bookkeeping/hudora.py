@@ -7,32 +7,11 @@ Created by Maximillian Dornseif on 2010-06-04.
 Copyright (c) 2010 HUDORA. All rights reserved.
 """
 
-import datetime
-import husoftm.artikel
 import husoftm.kunden
 import husoftm.rechnungen
-import husoftm.stapelschnittstelle
-import uuid
-from decimal import Decimal
-from bookkeeping.struct import make_struct
+
 
 ABSENDER_ADRESSE = u"HUDORA GmbH\nJägerwald 13\nD-42897 Remscheid"
-
-
-def store_order(order):
-    """
-    Schreibe einen Auftrag in die SoftM-Stapelschnittstelle.
-    
-    Es wird erwartet, dass der Auftrag dem ExtendedOrderProtocol entspricht.
-    """
-    
-    order = make_struct(order)
-    if not check_order(order):
-        raise ValueError('Order does not conform to ExtendedOrderProtocol')
-    
-    vorgangsnr = husoftm.stapelschnittstelle.auftrag2softm(order)
-    if not husoftm.stapelschnittstelle.address_transmitted(vorgangsnr):
-        raise RuntimeError("Fehler bei Vorgang %s: Die Addresse wurde nicht korrekt uebermittelt." % vorgangsnr)
 
 
 def list_invoices(kdnr):
@@ -76,12 +55,3 @@ def get_invoice(rechnungsnr):
                                       'preis': int(position['wert_netto'] * 100),
                                      })
     return invoice
-
-
-def main():
-    pass
-
-
-if __name__ == '__main__':
-    main()
-
