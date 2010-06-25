@@ -7,6 +7,7 @@ Created by Maximillian Dornseif on 2010-06-04.
 Copyright (c) 2010 HUDORA. All rights reserved.
 """
 
+import datetime
 import husoftm.kunden
 import husoftm.rechnungen
 
@@ -14,9 +15,15 @@ import husoftm.rechnungen
 ABSENDER_ADRESSE = u"HUDORA GmbH\nJägerwald 13\nD-42897 Remscheid"
 
 
-def list_invoices(kdnr):
-    """Erzeuge eine Liste mit allen Rechnungsnummern zu der gegebenen Kundennummer"""
-    return husoftm.rechnungen.rechnungen_for_kunde(kdnr)
+def list_invoices(kdnr, days=None):
+    """
+    Erzeuge eine Liste mit allen Rechnungsnummern zu der gegebenen Kundennummer.
+    
+    Ist der Parameter days gesetzt, werden nur die Rechnungen der letzten `days` Tage betrachtet. 
+    """
+    
+    mindate = datetime.date.today() - datetime.timedelta(days=days) if days else None
+    return husoftm.rechnungen.rechnungen_for_kunde(kdnr, mindate=mindate)
 
 
 def get_invoice(rechnungsnr):

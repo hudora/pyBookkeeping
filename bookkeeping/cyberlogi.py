@@ -212,20 +212,19 @@ def store_hudorainvoice(invoice, netto=True):
 
     # Kundenauftragsnummer als Orderline hinzufügen
     if invoice.kundenauftragsnr:
-        add_orderline(lineitems, "Kundenauftragsnr: %s" % kundenauftragsnr, 0, 0, '')    
+        add_orderline(lineitems, "Kundenauftragsnr: %s" % invoice.kundenauftragsnr, 0, 0, '')    
     
     total = Decimal(0)
     for item in invoice.orderlines:
         item = make_struct(item)
-        
+        preis = cent_to_euro(item.preis / item.menge)
         # Versandkosten mit spezieller AccountID verbuchen
         if 'ersandkosten' in item.infotext_kunde:
-            add_orderline(lineitems, 'Paketversand DPD', item.menge, cent_to_euro(item.preis / item.menge), VERSANDKOSTEN_ACCOUNT)
+            add_orderline(lineitems, 'Paketversand DPD', item.menge, preis, VERSANDKOSTEN_ACCOUNT)
         else:
-            add_orderline(lineitems, u"%s - %s" % (item.artnr, item.infotext_kunde), item.menge,
-                          cent_to_euro(item.preis / item.menge), WAREN_ACCOUNT)
+            add_orderline(lineitems, u"%s - %s" % (item.artnr, item.infotext_kunde), item.menge, preis, WAREN_ACCOUNT)
                       
-        total += item.preis
+        total += preis * item.menge
     
     # 2 Prozent Skonto innerhalb von 8 Tagen
     add_orderline(lineitems, 'Skonto bis %s' % (datetime.date.today() + datetime.timedelta(days=8)).strftime('%Y-%m-%d'),

@@ -28,7 +28,7 @@ def transfer(options):
     eingang = bookkeeping.cyberlogi.list_eingangsrechnungen(options.seller)
     
     logger.debug('Retrieving invoices for %s' % options.buyer)
-    ausgang = bookkeeping.hudora.list_invoices(options.buyer)
+    ausgang = bookkeeping.hudora.list_invoices(options.buyer, days=options.days)
     
     for rechnungsnr in ausgang:
         logging.debug('Invoice %s' % rechnungsnr)
@@ -36,10 +36,9 @@ def transfer(options):
         if not (rechnungsnr in eingang or 'RG%s' % rechnungsnr in eingang):
             logging.info('Invoice %s not in xero' % rechnungsnr)
             rechnung = bookkeeping.hudora.get_invoice(rechnungsnr)
-            
+                        
             if not options.dryrun:
-                bookkeeping_url.cyberlogi.store_hudorainvoice(rechnung)
-            
+                bookkeeping.cyberlogi.store_hudorainvoice(rechnung)
         else:
             logging.debug('Invoice %s already in xero' % rechnungsnr)
 
