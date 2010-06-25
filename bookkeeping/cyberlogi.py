@@ -100,7 +100,7 @@ def add_orderline(root, description, qty, price, account_code):
     lineitem = ET.SubElement(root, 'LineItem')
     ET.SubElement(lineitem, 'Description').text = description
     ET.SubElement(lineitem, 'Quantity').text = str(qty)
-    ET.SubElement(lineitem, 'UnitAmount').text = str(price/Decimal(100))
+    ET.SubElement(lineitem, 'UnitAmount').text = str(price)
     ET.SubElement(lineitem, 'AccountCode').text = account_code
 
 
@@ -195,7 +195,7 @@ def store_hudorainvoice(invoice, netto=True):
     # d.h. bei der Überprüfung, ob eine Rechnung schon in xero.com ist
     # (wenn z.B. kein Lieferdatum gesetzt ist oder es keine Online-Shop-Rechnung ist)
     
-    ET.SubElement(invoice_element, 'InvoiceNumber').text = invoice.guid
+    ET.SubElement(invoice_element, 'InvoiceNumber').text = str(invoice.guid)
     ET.SubElement(invoice_element, 'Type').text = 'ACCPAY'
     ET.SubElement(invoice_element, 'Status').text = 'SUBMITTED'
     ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Exclusive' if netto else 'Inclusive'
