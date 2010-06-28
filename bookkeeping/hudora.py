@@ -49,7 +49,7 @@ def get_invoice(rechnungsnr):
         'orderlines': [],
     }
     
-    guid = rechnungskopf['rechnungsnr']
+    guid = str(rechnungskopf['rechnungsnr'])
     if not guid.startswith('RG'):
         guid = 'RG' + guid
     invoice['guid'] = guid
