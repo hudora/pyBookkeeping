@@ -43,12 +43,16 @@ def get_invoice(rechnungsnr):
         'mail': kunde.mail,
         'iln': kunde.iln,
         'kundenauftragsnr': rechnungskopf['kundenauftragsnr'],
-        'guid': rechnungskopf['rechnungsnr'],
         'zahlungsziel': 30,
         'absenderadresse': ABSENDER_ADRESSE,
         'preis': int(rechnungskopf['netto'] * 100),
         'orderlines': [],
     }
+    
+    guid = rechnungskopf['rechnungsnr']
+    if not guid.startswith('RG'):
+        guid = 'RG' + guid
+    invoice['guid'] = guid
     
     if rechnungskopf.get('versand_date', None):
         invoice['leistungszeitpunkt'] = rechnungskopf['versand_date'].strftime('%Y-%m-%d')
