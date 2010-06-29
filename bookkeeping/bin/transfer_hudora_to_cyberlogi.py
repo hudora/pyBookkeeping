@@ -30,7 +30,7 @@ def transfer(options):
     logger.debug('Retrieving invoices for %s' % options.buyer)
     ausgang = bookkeeping.hudora.list_invoices(options.buyer, days=options.days)
     
-    for rechnungsnr in ausgang:
+    for rechnungsnr in sorted(ausgang, reverse=True):
         logging.debug('Invoice %s' % rechnungsnr)
                 
         if not (rechnungsnr in eingang or 'RG%s' % rechnungsnr in eingang):
