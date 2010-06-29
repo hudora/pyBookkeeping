@@ -19,6 +19,5 @@ setup(name='pyBookkeeping',
                    'Programming Language :: Python'],
       packages=find_packages(),
       include_package_data=True,
-      scripts=['bookkeeping/bin/transfer_hudora_to_cyberlogi.py'],
       install_requires=['oauth2', 'cs>=0.11', 'tlslite', 'huSoftM'],
 )
