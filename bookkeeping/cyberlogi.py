@@ -111,7 +111,8 @@ def store_invoice(invoice, tax_included=False, draft=False):
     Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown    
     """
     
-    invoice = make_struct(invoice)    
+    invoice = make_struct(invoice)
+    invoice.leistungszeitpunkt = invoice.leistungszeitpunkt.split('T')[0]
     root = ET.Element('Invoices')
     invoice_element = ET.SubElement(root, 'Invoice')
     ET.SubElement(invoice_element, 'Type').text = 'ACCREC'    
@@ -134,13 +135,13 @@ def store_invoice(invoice, tax_included=False, draft=False):
     lineitems = ET.SubElement(invoice_element, 'LineItems')
     for item in invoice.orderlines:
         item = make_struct(item) # XXX rekursives Verhalten mit in make_struct packen
-        add_orderline(lineitems, u"%s - %s" % (item.artnr, item.infotext_kunde), item.menge, item.preis, '200')
-    add_orderline(lineitems, 'Verpackung & Versand', 1, invoice.versandkosten, '201')
+        add_orderline(lineitems, u"%s - %s" % (item.artnr, item.infotext_kunde), item.menge, cent_to_euro(item.preis), '200')
+    add_orderline(lineitems, 'Verpackung & Versand', 1, cent_to_euro(invoice.versandkosten), '201')
     
     # Adressdaten
     contact = ET.SubElement(invoice_element, 'Contact')
     ET.SubElement(contact, 'Name').text = ' '.join([invoice.name1, invoice.name2])
-    ET.SubElement(contact, 'EmailAddress').text = huTools.unicode.deUmlaut(invoice.email)
+    ET.SubElement(contact, 'EmailAddress').text = huTools.unicode.deUmlaut(invoice.mail)
     addresses = ET.SubElement(contact, 'Addresses')
     address = ET.SubElement(addresses, 'Address')
     ET.SubElement(address, 'AddressType').text = 'POBOX' # Rechnungsadresse
