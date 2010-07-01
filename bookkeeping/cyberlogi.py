@@ -195,7 +195,7 @@ def store_hudorainvoice(invoice, netto=True):
     # d.h. bei der Überprüfung, ob eine Rechnung schon in xero.com ist
     # (wenn z.B. kein Lieferdatum gesetzt ist oder es keine Online-Shop-Rechnung ist)
     
-    ET.SubElement(invoice_element, 'InvoiceNumber').text = str(invoice.guid)
+    ET.SubElement(invoice_element, 'InvoiceNumber').text = "%s %s" % (invoice.guid, invoice.kundenauftragsnr)
     ET.SubElement(invoice_element, 'Type').text = 'ACCPAY'
     ET.SubElement(invoice_element, 'Status').text = 'SUBMITTED'
     ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Exclusive' if netto else 'Inclusive'
