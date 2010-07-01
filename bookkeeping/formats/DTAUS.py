@@ -376,9 +376,9 @@ durch Klebezettel mit folgenden Angaben zu kennzeichnen:
 ##-Firma, Unterschrift
         blatt.write('\n\nBuchungsübersicht\n')
         for buchung in self.buchungen:
-            if buchung['betrag_float'] = float(buchung['betrag'])
-            blatt.write('\t%(betrag_float)6.2f Euro\t%(konto)s\t%(blz)s\t%(nachname)s %(vorname)s\n'
-                                    % buchung)
+            if buchung['betrag_float'] == float(buchung['betrag']):
+                blatt.write('\t%(betrag_float)6.2f Euro\t%(konto)s\t%(blz)s\t%(nachname)s %(vorname)s\n'
+                            % buchung)
         blatt.close()
     def begleitblatt_tex(self, file):
         """
