@@ -11,6 +11,7 @@ Copyright (c) 2010 HUDORA. All rights reserved.
 import base64
 import binascii
 import datetime
+import huTools.unicode
 import oauth2 as oauth
 import urllib
 import xml.etree.ElementTree as ET
@@ -110,41 +111,47 @@ def store_invoice(invoice, tax_included=False, draft=False):
     Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown    
     """
     
-    invoice = make_struct(invoice)    
+    invoice = make_struct(invoice)
+    invoice.leistungszeitpunkt = invoice.leistungszeitpunkt.split('T')[0]
     root = ET.Element('Invoices')
     invoice_element = ET.SubElement(root, 'Invoice')
     ET.SubElement(invoice_element, 'Type').text = 'ACCREC'    
     ET.SubElement(invoice_element, 'Status').text = 'DRAFT' if draft else 'SUBMITTED'
     ET.SubElement(invoice_element, 'Date').text = invoice.leistungszeitpunkt
-    ET.SubElement(invoice_element, 'Reference').text = invoice.guid
+    if invoice.kundenauftragsnr:
+        ET.SubElement(invoice_element, 'Reference').text = invoice.kundenauftragsnr
+    else:
+        ET.SubElement(invoice_element, 'Reference').text = invoice.guid
+    ET.SubElement(invoice_element, 'InvoiceNumber').text = invoice.guid
 
     if invoice.zahlungsziel:
         leistungszeitpunkt = datetime.datetime.strptime(invoice.leistungszeitpunkt, '%Y-%m-%d')
         timedelta = datetime.timedelta(days=invoice.zahlungsziel)
         ET.SubElement(invoice_element, 'DueDate').text = (leistungszeitpunkt + timedelta).strftime('%Y-%m-%d')
 
-    if invoice.kundenauftragsnr:
-        ET.SubElement(invoice_element, 'Reference').text = invoice.kundenauftragsnr
     ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Inclusive' if tax_included else 'Exclusive'
 
     # Füge die Orderlines und die Versandkosten hinzu
     lineitems = ET.SubElement(invoice_element, 'LineItems')
     for item in invoice.orderlines:
         item = make_struct(item) # XXX rekursives Verhalten mit in make_struct packen
-        add_orderline(lineitems, u"%s - %s" % (item.artnr, item.infotext_kunde), item.menge, item.preis, '200')
-    add_orderline(lineitems, 'Verpackung & Versand', 1, invoice.versandkosten, '201')
+        add_orderline(lineitems, u"%s - %s" % (item.artnr, item.infotext_kunde), item.menge, cent_to_euro(item.preis), '200')
+    add_orderline(lineitems, 'Verpackung & Versand', 1, cent_to_euro(invoice.versandkosten), '201')
     
     # Adressdaten
     contact = ET.SubElement(invoice_element, 'Contact')
     ET.SubElement(contact, 'Name').text = ' '.join([invoice.name1, invoice.name2])
-    ET.SubElement(contact, 'EmailAddress').text = invoice.email
+    ET.SubElement(contact, 'EmailAddress').text = huTools.unicode.deUmlaut(invoice.mail)
     addresses = ET.SubElement(contact, 'Addresses')
     address = ET.SubElement(addresses, 'Address')
-    ET.SubElement(address, 'AddressType').text = 'STREET'
-    ET.SubElement(address, 'AttentionTo').text = invoice.name1
+    ET.SubElement(address, 'AddressType').text = 'POBOX' # Rechnungsadresse
+    #ET.SubElement(address, 'AttentionTo').text = invoice.name1
     
     if invoice.name2:
         ET.SubElement(address, 'AddressLine1').text = invoice.name2
+        ET.SubElement(address, 'AddressLine2').text = invoice.strasse
+    else:
+        ET.SubElement(address, 'AddressLine1').text = invoice.strasse
     
     ET.SubElement(address, 'City').text = invoice.ort   
     ET.SubElement(address, 'PostalCode').text = invoice.plz
