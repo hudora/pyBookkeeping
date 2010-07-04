@@ -100,9 +100,18 @@ def add_orderline(root, description, qty, price, account_code):
     lineitem = ET.SubElement(root, 'LineItem')
     ET.SubElement(lineitem, 'Description').text = description
     ET.SubElement(lineitem, 'Quantity').text = str(qty)
-    ET.SubElement(lineitem, 'UnitAmount').text = str(price/Decimal(100))
+    ET.SubElement(lineitem, 'UnitAmount').text = str(Decimal(str(price))/Decimal(100))
     ET.SubElement(lineitem, 'AccountCode').text = account_code
 
+
+def _convert_to_date(data):
+    """Assumes a RfC 3339 coded date or a date object, returns a date object."""
+    if not hasattr(data, 'strftime'):
+        return datetime.datetime.strptime(data, '%Y-%m-%d')
+    return data
+
+
+import warnings
 
 def store_invoice(invoice, tax_included=False, draft=False):
     """
@@ -110,28 +119,34 @@ def store_invoice(invoice, tax_included=False, draft=False):
     Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown    
     """
     
-    invoice = make_struct(invoice)    
+    if draft:
+        warnings.warn("draft=True is deprecated: SUBMITTED means 'submitted for approval' which is way to go for all auto-generated stuff",
+                      DeprecationWarning)
+    invoice = make_struct(invoice)
     root = ET.Element('Invoices')
     invoice_element = ET.SubElement(root, 'Invoice')
     ET.SubElement(invoice_element, 'Type').text = 'ACCREC'    
     ET.SubElement(invoice_element, 'Status').text = 'DRAFT' if draft else 'SUBMITTED'
-    ET.SubElement(invoice_element, 'Date').text = invoice.leistungszeitpunkt
     ET.SubElement(invoice_element, 'InvoiceNumber').text = invoice.guid
 
+    leistungsdatum = _convert_to_date(invoice.leistungszeitpunkt)
     if invoice.zahlungsziel:
         timedelta = datetime.timedelta(days=invoice.zahlungsziel)
-        ET.SubElement(invoice_element, 'DueDate').text = (invoice.leistungszeitpunkt + timedelta).strftime('%Y-%m-%d')
+        ET.SubElement(invoice_element, 'DueDate').text = (leistungsdatum + timedelta).strftime('%Y-%m-%d')
+    ET.SubElement(invoice_element, 'Date').text = leistungsdatum.strftime('%Y-%m-%d')
 
     if invoice.kundenauftragsnr:
         ET.SubElement(invoice_element, 'Reference').text = invoice.kundenauftragsnr
     ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Inclusive' if tax_included else 'Exclusive'
 
-    # Füge die Orderlines und die Versandkosten hinzu
     lineitems = ET.SubElement(invoice_element, 'LineItems')
+    if invoice.infotext_kunde:
+        add_orderline(lineitems, invoice.infotext_kunde, 0, 0, '')
     for item in invoice.orderlines:
         item = make_struct(item) # XXX rekursives Verhalten mit in make_struct packen
         add_orderline(lineitems, u"%s - %s" % (item.artnr, item.infotext_kunde), item.menge, item.preis, '200')
-    add_orderline(lineitems, 'Verpackung & Versand', 1, invoice.versandkosten, '201')
+    if invoice.versandkosten:
+        add_orderline(lineitems, 'Verpackung & Versand', 1, invoice.versandkosten, '201')
     
     # Adressdaten
     contact = ET.SubElement(invoice_element, 'Contact')
@@ -169,6 +184,7 @@ def cent_to_euro(cent_ammount):
 
 # Fast komplette Kopie von store_invoice
 # Nur die AccountCodes sind unterschiedlich
+# TODO: store_hudorainvoice) sollte ein Frontend zu  store_invoice() werden.
 def store_hudorainvoice(invoice, netto=True):
     """
     Übertrage eine Eingangsrechnung von HUDORA an Cyberlogi an xero.com
@@ -184,27 +200,21 @@ def store_hudorainvoice(invoice, netto=True):
     # Bei 'ACCPAY' bleibt wohl nur der Weg, die InvoiceNumber zu setzen
     # ET.SubElement(invoice, 'Reference').text = invoice.guid
     
-    # Die bisherigen Rechnungen hatten als InvoiceNumber "Online_%s" % leistungsdatum
-    # gesetzt.
-    # Das verursacht jedoch Probleme beim Wiederfinden von Rechnungen,
-    # d.h. bei der Überprüfung, ob eine Rechnung schon in xero.com ist
-    # (wenn z.B. kein Lieferdatum gesetzt ist oder es keine Online-Shop-Rechnung ist)
-    
     ET.SubElement(invoice_element, 'InvoiceNumber').text = invoice.guid
     ET.SubElement(invoice_element, 'Type').text = 'ACCPAY'
     ET.SubElement(invoice_element, 'Status').text = 'SUBMITTED'
     ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Exclusive' if netto else 'Inclusive'
     ET.SubElement(invoice_element, 'Date').text = invoice.leistungszeitpunkt
-    
+
+    leistungsdatum = _convert_to_date(invoice.leistungszeitpunkt)
     if invoice.zahlungsziel:
         timedelta = datetime.timedelta(days=invoice.zahlungsziel)
-    else:
-        timedelta = datetime.timedelta(days=30)
-    leistungsdatum = datetime.datetime.strptime(invoice.leistungszeitpunkt, '%Y-%m-%d')
-    ET.SubElement(invoice_element, 'DueDate').text = (leistungsdatum + timedelta).strftime('%Y-%m-%d')
-    
+        ET.SubElement(invoice_element, 'DueDate').text = (leistungsdatum + timedelta).strftime('%Y-%m-%d')
+    ET.SubElement(invoice_element, 'Date').text = leistungsdatum.strftime('%Y-%m-%d')
+
     lineitems = ET.SubElement(invoice_element, 'LineItems')
-    
+    if invoice.infotext_kunde:
+        add_orderline(lineitems, invoice.infotext_kunde, 0, 0, '')
     for item in invoice.orderlines:
         item = make_struct(item)
         # Versandkosten mit spezieller AccountID verbuchen
