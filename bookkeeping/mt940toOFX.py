@@ -31,7 +31,8 @@ def parse_mt940(data):
             if not nextline:
                 continue
             try:
-                dummy, typ, data = nextline.split(':')
+                dummy, typ = nextline.split(':')[:2]
+                data = ':'.join(nextline.split(':')[2:])
             except:
                 print repr(nextline)
                 raise

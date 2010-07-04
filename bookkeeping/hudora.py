@@ -8,43 +8,22 @@ Copyright (c) 2010 HUDORA. All rights reserved.
 """
 
 import datetime
-import husoftm.artikel
 import husoftm.kunden
 import husoftm.rechnungen
-import husoftm.stapelschnittstelle
-import uuid
-from decimal import Decimal
-from bookkeeping.struct import make_struct
+
 
 ABSENDER_ADRESSE = u"HUDORA GmbH\nJägerwald 13\nD-42897 Remscheid"
 
 
-# XXX
-def check_order(order):
-    return True
-
-def store_invoice(invoice):
-    raise NotImplementedError
-
-def store_order(order):
+def list_invoices(kdnr, days=None):
     """
-    Schreibe einen Auftrag in die SoftM-Stapelschnittstelle.
+    Erzeuge eine Liste mit allen Rechnungsnummern zu der gegebenen Kundennummer.
     
-    Es wird erwartet, dass der Auftrag dem ExtendedOrderProtocol entspricht.
+    Ist der Parameter days gesetzt, werden nur die Rechnungen der letzten `days` Tage betrachtet. 
     """
     
-    order = make_struct(order)
-    if not check_order(order):
-        raise ValueError('Order does not conform to ExtendedOrderProtocol')
-    
-    vorgangsnr = husoftm.stapelschnittstelle.auftrag2softm(order)
-    if not husoftm.stapelschnittstelle.address_transmitted(vorgangsnr):
-        raise RuntimeError("Fehler bei Vorgang %s: Die Addresse wurde nicht korrekt uebermittelt." % vorgangsnr)
-
-
-def list_invoices(kdnr):
-    """Erzeuge eine Liste mit allen Rechnungsnummern zu der gegebenen Kundennummer"""
-    return husoftm.rechnungen.rechnungen_for_kunde(kdnr)
+    mindate = datetime.date.today() - datetime.timedelta(days=days) if days else None
+    return husoftm.rechnungen.rechnungen_for_kunde(kdnr, mindate=mindate)
 
 
 def get_invoice(rechnungsnr):
@@ -64,15 +43,18 @@ def get_invoice(rechnungsnr):
         'mail': kunde.mail,
         'iln': kunde.iln,
         'kundenauftragsnr': rechnungskopf['kundenauftragsnr'],
-        'guid': rechnungskopf['rechnungsnr'], # str(uuid4())
         'zahlungsziel': 30,
         'absenderadresse': ABSENDER_ADRESSE,
         'preis': int(rechnungskopf['netto'] * 100),
         'orderlines': [],
     }
     
+    guid = str(rechnungskopf['rechnungsnr'])
+    if not guid.startswith('RG'):
+        guid = 'RG' + guid
+    invoice['guid'] = guid
+    
     if rechnungskopf.get('versand_date', None):
-        print "versand_date: >%s<" % rechnungskopf['versand_date']
         invoice['leistungszeitpunkt'] = rechnungskopf['versand_date'].strftime('%Y-%m-%d')
     
     
@@ -84,12 +66,3 @@ def get_invoice(rechnungsnr):
                                       'preis': int(position['wert_netto'] * 100),
                                      })
     return invoice
-
-
-def main():
-    pass
-
-
-if __name__ == '__main__':
-    main()
-
