@@ -88,7 +88,7 @@ def xero_request(url, method='GET', body='', get_parameters=None, headers=None):
     if headers is None:
         headers = {}
 
-    if get_parameters is not None:
+    if get_parameters:
         url = "%s?%s" % (url, urllib.urlencode(get_parameters))
 
     response, content = client.request(url, method, body=body, headers={})
@@ -155,7 +155,7 @@ def store_invoice(invoice, tax_included=False, draft=False):
         item = make_struct(item) # XXX rekursives Verhalten mit in make_struct packen
         add_orderline(lineitems, u"%s - %s" % (item.artnr, item.infotext_kunde), item.menge, cent_to_euro(item.preis), '200')
     if invoice.versandkosten:
-        add_orderline(lineitems, 'Verpackung & Versand', 1, invoice.versandkosten, '201')
+        add_orderline(lineitems, 'Verpackung & Versand', 1, cent_to_euro(invoice.versandkosten), '201')
 
     # Adressdaten
     contact = ET.SubElement(invoice_element, 'Contact')
@@ -279,7 +279,8 @@ def get_invoice(lieferscheinnr=None, invoice_id=None):
                       DeprecationWarning)
 
     url = URL_BASE
-    parameters = ['Status!="DELETED"', 'Status!="VOIDED"']
+    # the where-Parameter seems only to work when querying lists of objects not vertain IDs
+    parameters = ['Status!="DELETED"'] # , 'Status!="VOIDED"']
 
     if lieferscheinnr is None and invoice_id is None:
         raise ValueError("lieferscheinnr or invoice_id required")
@@ -302,7 +303,8 @@ def get_invoice(lieferscheinnr=None, invoice_id=None):
                 subelement = element.find(attr)
                 if not subelement is None:
                     invoice[attr] = subelement.text
-            invoices.append(invoice)
+            if invoice.get('Status') not in ['DELETED']:
+                invoices.append(invoice)
     return invoices
 
 
