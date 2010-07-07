@@ -153,9 +153,14 @@ def store_invoice(invoice, tax_included=False, draft=False):
         add_orderline(lineitems, invoice.infotext_kunde, 0, 0, '')
     for item in invoice.orderlines:
         item = make_struct(item) # XXX rekursives Verhalten mit in make_struct packen
-        add_orderline(lineitems, u"%s - %s" % (item.artnr, item.infotext_kunde), item.menge, cent_to_euro(item.preis), '200')
+        # wenn wir hier Ersatzteile von Neuware trenen könnten, könnten wir die Neuware auf Konto 8406 buchen.
+        text = unicode(item.artnr)
+        if item.infotext_kunde:
+            text = u"%s - %s" % (item.artnr, item.infotext_kunde)
+        add_orderline(lineitems, text, item.menge, cent_to_euro(item.preis), '8404')
+
     if invoice.versandkosten:
-        add_orderline(lineitems, 'Verpackung & Versand', 1, cent_to_euro(invoice.versandkosten), '201')
+        add_orderline(lineitems, 'Verpackung & Versand', 1, cent_to_euro(invoice.versandkosten), '8402')
 
     # Adressdaten
     contact = ET.SubElement(invoice_element, 'Contact')
