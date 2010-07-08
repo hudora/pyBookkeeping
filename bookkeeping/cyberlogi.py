@@ -98,6 +98,8 @@ def xero_request(url, method='GET', body='', get_parameters=None, headers=None):
         if content == 'oauth_problem=signature_invalid&oauth_problem_advice=Failed%20to%20validate%20signature':
             # handle occasion server site glitches
             return xero_request(url, method, body, headers=headers)
+        if body:
+            print body
         raise RuntimeError("Return code %s for %s: %s" % (response['status'], url, content))
     return content
 
@@ -209,8 +211,8 @@ def store_hudorainvoice(invoice, netto=True):
     Der Rückgabewert ist die xero.com InvoiceID
     """
 
-    SKONTO_ACCOUNT = '2xx'
-    VERSANDKOSTEN_ACCOUNT = '4730'
+    SKONTO_ACCOUNT = '3736'
+    VERSANDKOSTEN_ACCOUNT = '3801'
     WAREN_ACCOUNT = '3400'
 
     invoice = make_struct(invoice)
@@ -225,7 +227,6 @@ def store_hudorainvoice(invoice, netto=True):
     ET.SubElement(invoice_element, 'Type').text = 'ACCPAY'
     ET.SubElement(invoice_element, 'Status').text = 'SUBMITTED'
     ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Exclusive' if netto else 'Inclusive'
-    ET.SubElement(invoice_element, 'Date').text = invoice.leistungszeitpunkt
 
     leistungsdatum = _convert_to_date(invoice.leistungszeitpunkt)
     if invoice.zahlungsziel:
@@ -242,7 +243,9 @@ def store_hudorainvoice(invoice, netto=True):
     total = Decimal(0)
     for item in invoice.orderlines:
         item = make_struct(item)
-        preis = cent_to_euro(item.preis / item.menge)
+        preis = 0
+        if item.preis and item.menge:
+            preis = cent_to_euro(item.preis / item.menge)
         # Versandkosten mit spezieller AccountID verbuchen
         if 'ersandkosten' in item.infotext_kunde:
             add_orderline(lineitems, 'Paketversand DPD', item.menge, preis, VERSANDKOSTEN_ACCOUNT)
@@ -293,7 +296,7 @@ def get_invoice(lieferscheinnr=None, invoice_id=None):
     if lieferscheinnr:
         parameters.append('Reference=="%s"' % lieferscheinnr)
     if invoice_id:
-        url += '/%s' % invoice_id
+        url += '/%s' % urllib.quote(invoice_id)
 
     get_parameters = {'where': "&&".join(parameters)}
     content = xero_request(url, get_parameters=get_parameters)
