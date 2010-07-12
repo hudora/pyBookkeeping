@@ -108,7 +108,7 @@ def add_orderline(root, description, qty, price, account_code):
 def store_invoice(invoice, tax_included=False, draft=False):
     """
     Erzeugt eine (Ausgangs-) Rechnung anhand des Simple Invoice Protocol.
-    Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown    
+    Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown
     """
     
     invoice = make_struct(invoice)
@@ -135,8 +135,13 @@ def store_invoice(invoice, tax_included=False, draft=False):
     lineitems = ET.SubElement(invoice_element, 'LineItems')
     for item in invoice.orderlines:
         item = make_struct(item) # XXX rekursives Verhalten mit in make_struct packen
-        add_orderline(lineitems, u"%s - %s" % (item.artnr, item.infotext_kunde), item.menge, cent_to_euro(item.preis), '200')
-    add_orderline(lineitems, 'Verpackung & Versand', 1, cent_to_euro(invoice.versandkosten), '201')
+        buchungskonto = '8400'  # default
+        if item.buchungskonto:
+            buchungskonto = item.buchungskonto
+        add_orderline(lineitems, u"%s - %s" % (item.artnr, item.infotext_kunde), item.menge, cent_to_euro(item.preis), buchungskonto)
+
+    if invoice.versandkosten:
+        add_orderline(lineitems, 'Verpackung & Versand', 1, cent_to_euro(invoice.versandkosten), '201')
     
     # Adressdaten
     contact = ET.SubElement(invoice_element, 'Contact')
@@ -177,6 +182,7 @@ def cent_to_euro(cent_ammount):
 
 # Fast komplette Kopie von store_invoice
 # Nur die AccountCodes sind unterschiedlich
+# TODO: rename to Store inbound_invoice (oder so)
 def store_hudorainvoice(invoice, netto=True):
     """
     Übertrage eine Eingangsrechnung von HUDORA an Cyberlogi an xero.com
@@ -268,7 +274,7 @@ def get_invoice(lieferscheinnr=None, invoice_id=None):
     parameters = ['Status!="DELETED"', 'Status!="VOIDED"']
     
     if lieferscheinnr:
-        parameters.append('Reference=="%s"' % lieferscheinnr)    
+        parameters.append('Reference=="%s"' % lieferscheinnr)   
     if invoice_id:
         url += '/%s' % invoice_id
     
