@@ -182,7 +182,7 @@ path = './'
 if len(sys.argv) > 1:
     path = sys.argv[1]
 
-for fname in [x for x in os.listdir(path) if x.endswith('.sta')]:
+for fname in [x for x in os.listdir(path) if x.lower().endswith('.sta')]:
     data = []
     print 'processing %s' % os.path.join(path, fname)
     data.append(open(os.path.join(path, fname)).read())
