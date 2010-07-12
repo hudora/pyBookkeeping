@@ -23,7 +23,7 @@ def list_invoices(kdnr, days=None):
     """
     
     mindate = datetime.date.today() - datetime.timedelta(days=days) if days else None
-    return husoftm.rechnungen.rechnungen_for_kunde(kdnr, mindate=mindate)
+    return [x for x in husoftm.rechnungen.rechnungen_for_kunde(kdnr, mindate=mindate) if str(x) != '0']
 
 
 def get_invoice(rechnungsnr):
