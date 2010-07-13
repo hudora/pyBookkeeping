@@ -208,11 +208,8 @@ def cent_to_euro(cent_ammount):
 
 # Fast komplette Kopie von store_invoice
 # Nur die AccountCodes sind unterschiedlich
-<<<<<<< HEAD
 # TODO: rename to Store inbound_invoice (oder so)
-=======
 # TODO: store_hudorainvoice) sollte ein Frontend zu  store_invoice() werden.
->>>>>>> ae41d511a307b51c08eeaf8cd25bcbddc92e42e5
 def store_hudorainvoice(invoice, netto=True):
     """
     Übertrage eine Eingangsrechnung von HUDORA an Cyberlogi an xero.com
@@ -303,11 +300,7 @@ def get_invoice(lieferscheinnr=None, invoice_id=None):
         raise ValueError("lieferscheinnr or invoice_id required")
 
     if lieferscheinnr:
-<<<<<<< HEAD
-        parameters.append('Reference=="%s"' % lieferscheinnr)   
-=======
         parameters.append('Reference=="%s"' % lieferscheinnr)
->>>>>>> ae41d511a307b51c08eeaf8cd25bcbddc92e42e5
     if invoice_id:
         url += '/%s' % urllib.quote(invoice_id)
 
