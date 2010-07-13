@@ -164,7 +164,7 @@ def store_invoice(invoice, tax_included=False, draft=False):
         text = unicode(item.artnr)
         if item.infotext_kunde:
             text = u"%s - %s" % (item.artnr, item.infotext_kunde)
-        add_orderline(lineitems, text, item.menge, cent_to_euro(item.preis), '8404')
+        add_orderline(lineitems, text, item.menge, cent_to_euro(item.preis), buchungskonto)
 
     if invoice.versandkosten:
         add_orderline(lineitems, 'Verpackung & Versand', 1, cent_to_euro(invoice.versandkosten), '8402')
