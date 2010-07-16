@@ -140,7 +140,7 @@ def write_ofx(account, vorgaenge, inputname):
     ET.SubElement(bankacctfrom, 'ACCTTYPE').text = 'CHECKING'
     banktranlist = ET.SubElement(stmtrs, 'BANKTRANLIST')
     deduper = set()
-    for line in vorgaenge:
+    for line in sorted(vorgaenge, reverse=True):
         amount, date, absender, guid, bookingcode, verwendungszweck, quellblz, quellkonto, description = line
         if guid in deduper:
             continue
