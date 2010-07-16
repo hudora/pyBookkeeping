@@ -139,8 +139,12 @@ def write_ofx(account, vorgaenge, inputname):
     ET.SubElement(bankacctfrom, 'ACCTID').text = account.split('/')[-1]
     ET.SubElement(bankacctfrom, 'ACCTTYPE').text = 'CHECKING'
     banktranlist = ET.SubElement(stmtrs, 'BANKTRANLIST')
+    deduper = set()
     for line in vorgaenge:
         amount, date, absender, guid, bookingcode, verwendungszweck, quellblz, quellkonto, description = line
+        if guid in deduper:
+            continue
+        deduper.add(guid)
         stmttrn = ET.SubElement(banktranlist, 'STMTTRN')
         ET.SubElement(stmttrn, 'TRNTYPE').text = 'CREDIT'  # CREDIT DEBIT
         # DtPosted Date item was posted, datetime
