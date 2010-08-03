@@ -108,7 +108,7 @@ def parse_mt940(data):
                 description = "Konto %s, BLZ %s" % (quellkonto, quellblz)
                 if not absender:
                     absender = '???'
-                auszuege[account].append((amount, date, absender, guid, bookingcode, verwendungszweck, quellblz, quellkonto, description))
+                auszuege[account].append((float(amount), date, absender, guid, bookingcode, verwendungszweck, quellblz, quellkonto, description))
             elif typ == '62F':
                 pass  # we ignore closing balance
             else:
@@ -152,7 +152,7 @@ def write_ofx(account, vorgaenge, inputname):
         # DtPosted Date item was posted, datetime
         ET.SubElement(stmttrn, 'DTPOSTED').text = "20%s" % date
         # Amount, mit '.' getrennt
-        ET.SubElement(stmttrn, 'TRNAMT').text = amount
+        ET.SubElement(stmttrn, 'TRNAMT').text = unicode(amount)
         # That is, the <FITID> value must be unique within the account and Financial Institution (independent of the service provider).
         ET.SubElement(stmttrn, 'FITID').text = guid.replace('*', '.')
         verwendungszweck = verwendungszweck.strip()
