@@ -12,6 +12,7 @@ Copyright (c) 2010 HUDORA. All rights reserved.
 
 
 import datetime
+import hashlib
 import os
 import sys
 import time
@@ -102,11 +103,12 @@ def parse_mt940(data):
                         quellkonto = element
                     elif subtyp.startswith('3'):
                         absender = ' '.join([absender, element])
-                guid = '*'.join([transaction_reference_number, statement_nr, quellblz, quellkonto]).replace('/', '')
+                guid = ':'.join([transaction_reference_number, statement_nr, quellblz, quellkonto, amount, verwendungszweck])
+                guid = hashlib.md5(guid).hexdigest()
                 description = "Konto %s, BLZ %s" % (quellkonto, quellblz)
                 if not absender:
                     absender = '???'
-                auszuege[account].append((amount, date, absender, guid, bookingcode, verwendungszweck, quellblz, quellkonto, description))
+                auszuege[account].append((float(amount), date, absender, guid, bookingcode, verwendungszweck, quellblz, quellkonto, description))
             elif typ == '62F':
                 pass  # we ignore closing balance
             else:
@@ -139,14 +141,18 @@ def write_ofx(account, vorgaenge, inputname):
     ET.SubElement(bankacctfrom, 'ACCTID').text = account.split('/')[-1]
     ET.SubElement(bankacctfrom, 'ACCTTYPE').text = 'CHECKING'
     banktranlist = ET.SubElement(stmtrs, 'BANKTRANLIST')
-    for line in vorgaenge:
+    deduper = set()
+    for line in sorted(vorgaenge, reverse=True):
         amount, date, absender, guid, bookingcode, verwendungszweck, quellblz, quellkonto, description = line
+        if guid in deduper:
+            continue
+        deduper.add(guid)
         stmttrn = ET.SubElement(banktranlist, 'STMTTRN')
         ET.SubElement(stmttrn, 'TRNTYPE').text = 'CREDIT'  # CREDIT DEBIT
         # DtPosted Date item was posted, datetime
         ET.SubElement(stmttrn, 'DTPOSTED').text = "20%s" % date
         # Amount, mit '.' getrennt
-        ET.SubElement(stmttrn, 'TRNAMT').text = amount
+        ET.SubElement(stmttrn, 'TRNAMT').text = unicode(amount)
         # That is, the <FITID> value must be unique within the account and Financial Institution (independent of the service provider).
         ET.SubElement(stmttrn, 'FITID').text = guid.replace('*', '.')
         verwendungszweck = verwendungszweck.strip()
@@ -182,7 +188,7 @@ path = './'
 if len(sys.argv) > 1:
     path = sys.argv[1]
 
-for fname in [x for x in os.listdir(path) if x.endswith('.sta')]:
+for fname in [x for x in os.listdir(path) if x.lower().endswith('.sta')]:
     data = []
     print 'processing %s' % os.path.join(path, fname)
     data.append(open(os.path.join(path, fname)).read())

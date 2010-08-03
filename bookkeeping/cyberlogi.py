@@ -156,11 +156,16 @@ def store_invoice(invoice, tax_included=False, draft=False, xero_should_generate
         add_orderline(lineitems, invoice.infotext_kunde, 0, 0, '')
     for item in invoice.orderlines:
         item = make_struct(item) # XXX rekursives Verhalten mit in make_struct packen
-        # wenn wir hier Ersatzteile von Neuware trenen könnten, könnten wir die Neuware auf Konto 8406 buchen.
+    
+        buchungskonto = '8404'  # default
+        # wenn wir hier Ersatzteile von Neuware trenen könnten, könnten wir die Neuware auf Konto 8406
+        # udn hoogoo Scooter auf Konto 8410 buchen.
+        if item.buchungskonto:
+            buchungskonto = item.buchungskonto
         text = unicode(item.artnr)
         if item.infotext_kunde:
             text = u"%s - %s" % (item.artnr, item.infotext_kunde)
-        add_orderline(lineitems, text, item.menge, cent_to_euro(item.preis), '8404')
+        add_orderline(lineitems, text, item.menge, cent_to_euro(item.preis), buchungskonto)
 
     if invoice.versandkosten:
         add_orderline(lineitems, 'Verpackung & Versand', 1, cent_to_euro(invoice.versandkosten), '8402')
@@ -204,6 +209,7 @@ def cent_to_euro(cent_ammount):
 
 # Fast komplette Kopie von store_invoice
 # Nur die AccountCodes sind unterschiedlich
+# TODO: rename to Store inbound_invoice (oder so)
 # TODO: store_hudorainvoice) sollte ein Frontend zu  store_invoice() werden.
 def store_hudorainvoice(invoice, netto=True):
     """
