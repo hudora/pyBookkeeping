@@ -121,7 +121,7 @@ def _convert_to_date(data):
     return data
 
 
-def store_invoice(invoice, tax_included=False, draft=False):
+def store_invoice(invoice, tax_included=False, draft=False, xero_should_generate_invoice_number=False):
     """
     Erzeugt eine (Ausgangs-) Rechnung anhand des Simple Invoice Protocol.
     Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown
@@ -141,7 +141,8 @@ def store_invoice(invoice, tax_included=False, draft=False):
         ET.SubElement(invoice_element, 'Reference').text = invoice.kundenauftragsnr
     else:
         ET.SubElement(invoice_element, 'Reference').text = invoice.guid
-    ET.SubElement(invoice_element, 'InvoiceNumber').text = invoice.guid
+    if not xero_should_generate_invoice_number:
+        ET.SubElement(invoice_element, 'InvoiceNumber').text = invoice.guid
 
     leistungsdatum = _convert_to_date(invoice.leistungszeitpunkt)
     if invoice.zahlungsziel:
