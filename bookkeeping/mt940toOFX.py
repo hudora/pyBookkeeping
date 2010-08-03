@@ -12,6 +12,7 @@ Copyright (c) 2010 HUDORA. All rights reserved.
 
 
 import datetime
+import hashlib
 import os
 import sys
 import time
@@ -102,7 +103,8 @@ def parse_mt940(data):
                         quellkonto = element
                     elif subtyp.startswith('3'):
                         absender = ' '.join([absender, element])
-                guid = '*'.join([transaction_reference_number, statement_nr, quellblz, quellkonto]).replace('/', '')
+                guid = ':'.join([transaction_reference_number, statement_nr, quellblz, quellkonto, amount, verwendungszweck])
+                guid = hashlib.md5(guid).hexdigest()
                 description = "Konto %s, BLZ %s" % (quellkonto, quellblz)
                 if not absender:
                     absender = '???'
