@@ -19,5 +19,5 @@ setup(name='pyBookkeeping',
                    'Programming Language :: Python'],
       packages=find_packages(),
       include_package_data=True,
-      install_requires=['oauth2', 'cs>=0.11', 'tlslite', 'huSoftM'],
+      install_requires=['gdata', 'oauth2', 'cs>=0.11', 'tlslite', 'huSoftM'],
 )

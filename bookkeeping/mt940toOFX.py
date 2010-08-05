@@ -8,12 +8,12 @@ Created by Maximillian Dornseif on 2010-06-05.
 Copyright (c) 2010 HUDORA. All rights reserved.
 """
 
-# TODO: eine ausgabedatei pro eingabedatei
-
 
 import datetime
 import hashlib
+import optparse
 import os
+import re
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -103,12 +103,16 @@ def parse_mt940(data):
                         quellkonto = element
                     elif subtyp.startswith('3'):
                         absender = ' '.join([absender, element])
+                # fix simple typos in WLXXXXXXX
+                verwendungszweck = re.sub(r'[Ww][Ll] ?(\d\d\d\d\d\d\d)', r'WL\1', verwendungszweck)
+                # remove duplicate spaces
+                verwendungszweck = re.sub(r' +', r' ', verwendungszweck)
                 guid = ':'.join([transaction_reference_number, statement_nr, quellblz, quellkonto, amount, verwendungszweck])
                 guid = hashlib.md5(guid).hexdigest()
                 description = "Konto %s, BLZ %s" % (quellkonto, quellblz)
                 if not absender:
                     absender = '???'
-                auszuege[account].append((float(amount), date, absender, guid, bookingcode, verwendungszweck, quellblz, quellkonto, description))
+                auszuege[account].append((float(amount), amount, date, absender, guid, bookingcode, verwendungszweck, quellblz, quellkonto, description))
             elif typ == '62F':
                 pass  # we ignore closing balance
             else:
@@ -143,7 +147,7 @@ def write_ofx(account, vorgaenge, inputname):
     banktranlist = ET.SubElement(stmtrs, 'BANKTRANLIST')
     deduper = set()
     for line in sorted(vorgaenge, reverse=True):
-        amount, date, absender, guid, bookingcode, verwendungszweck, quellblz, quellkonto, description = line
+        sortkey, amount, date, absender, guid, bookingcode, verwendungszweck, quellblz, quellkonto, description = line
         if guid in deduper:
             continue
         deduper.add(guid)
@@ -153,15 +157,21 @@ def write_ofx(account, vorgaenge, inputname):
         ET.SubElement(stmttrn, 'DTPOSTED').text = "20%s" % date
         # Amount, mit '.' getrennt
         ET.SubElement(stmttrn, 'TRNAMT').text = unicode(amount)
-        # That is, the <FITID> value must be unique within the account and Financial Institution (independent of the service provider).
+        # That is, the <FITID> value must be unique within the account and Financial Institution
+        # (independent of the service provider).
         ET.SubElement(stmttrn, 'FITID').text = guid.replace('*', '.')
         verwendungszweck = verwendungszweck.strip()
-        if verwendungszweck and len(verwendungszweck) < 12:
+        # extract references like WL0000000 SFYX0000
+        m = re.search(r'(WL\d\d\d\d\d\d\d|SFYX\d\d\d\d)', verwendungszweck)
+        if m:
+            checknum = m.group(0)
+            print checknum
             # reference/Check number, A-12
-            ET.SubElement(stmttrn, 'CHECKNUM').text = verwendungszweck
+            ET.SubElement(stmttrn, 'CHECKNUM').text = checknum
         # PAYEE
         ET.SubElement(stmttrn, 'NAME').text = absender.strip()
-        # Format: A-255 for <MEMO>, used in V1 message sets A <MEMO> provides additional information about a transaction.
+        # Format: A-255 for <MEMO>, used in V1 message sets A <MEMO> provides additional information
+        # about a transaction.
         ET.SubElement(stmttrn, 'MEMO').text = (' '.join([verwendungszweck, description]))[:254]
     
     header = """OFXHEADER:100
@@ -184,22 +194,83 @@ NEWFILEUID:NONE
     fd.close()
 
 
-path = './'
-if len(sys.argv) > 1:
-    path = sys.argv[1]
+def write_gdata(account, vorgaenge, inputname):
+    """Stores Transaction Information in google Docs"""
 
-for fname in [x for x in os.listdir(path) if x.lower().endswith('.sta')]:
-    data = []
-    print 'processing %s' % os.path.join(path, fname)
-    data.append(open(os.path.join(path, fname)).read())
-    data = '\n\n'.join(data)
+    import gdata.spreadsheet.service
+    email = options.google_email
+    password = options.google_password
+    
+    spr_client = gdata.spreadsheet.service.SpreadsheetsService()
+    spr_client.email = email
+    spr_client.password = password
+    spr_client.source = 'mt940toOFX'
+    spr_client.ProgrammaticLogin()
+    
+    docs= spr_client.GetSpreadsheetsFeed()
+    spreads = [i.title.text for i in docs.entry]
+    try:
+        spread_number = spreads.index('Kontoauszuege')
+    except ValueError:
+        print "Spreadsheet 'Kontoauszuege' not found"
+        raise
 
-    if not data:
-        print "nothing found matching %s" % os.path.join(path, '*.sta')
-        sys.exit(1)
+    spreadsheet_key = docs.entry[spread_number].id.text.rsplit('/', 1)[1]
+    feed = spr_client.GetWorksheetsFeed(spreadsheet_key)
+    worksheet_id = feed.entry[0].id.text.rsplit('/', 1)[1]
 
-    auszuege = parse_mt940(data)
-    fname, extension = os.path.splitext(fname)
+    deduper = set()
+    for line in sorted(vorgaenge, reverse=True):
+        sortkey, amount, date, absender, guid, bookingcode, verwendungszweck, quellblz, quellkonto, description = line
+        guid = guid.replace('*', ':')
+        if guid in deduper:
+            continue
+        deduper.add(guid)
+        query = gdata.spreadsheet.service.ListQuery()
+        query.sq = 'guid="%s"' % guid
+        list_feed = spr_client.GetListFeed(spreadsheet_key, worksheet_id, query=query)
+        if not int(list_feed.total_results.text):
+            d = {}
+            d['konto'] = account
+            d['betrag'] = unicode(amount)
+            d['datum'] = "20%s-%s-%s" % (date[:2], date[2:4], date[4:])
+            d['absender'] = absender
+            d['verwendugnszweck'] = verwendungszweck.strip()
+            d['quellblz'] = quellblz
+            d['quellkonto'] = quellkonto
+            #d['text'] = description.strip()
+            d['guid '] = guid
 
-    for account in auszuege:
-        write_ofx(account, auszuege[account], fname)
+            entry = spr_client.InsertRow(d, spreadsheet_key, worksheet_id)
+            if not isinstance(entry, gdata.spreadsheet.SpreadsheetsList):
+              print "Insert row failed."
+
+
+if __name__ == '__main__':
+
+    parser = optparse.OptionParser()
+    parser.add_option('-m', '--google-email', help=u'Ihre Google-Apps E-Mail Adresse')
+    parser.add_option('-p', '--google-password', help=u'Ihre Google-Apps')
+    options, args = parser.parse_args()
+
+    path = './'
+    if len(args):
+        path = args[0]
+
+    for fname in [x for x in os.listdir(path) if x.lower().endswith('.sta')]:
+        data = []
+        print 'processing %s' % os.path.join(path, fname)
+        data.append(open(os.path.join(path, fname)).read())
+        data = '\n\n'.join(data)
+
+        if not data:
+            print "nothing found matching %s" % os.path.join(path, '*.sta')
+            sys.exit(1)
+
+        auszuege = parse_mt940(data)
+        fname, extension = os.path.splitext(fname)
+
+        for account in auszuege:
+            write_ofx(account, auszuege[account], fname)
+            if options.google_password and options.google_email:
+                write_gdata(account, auszuege[account], fname)
