@@ -104,7 +104,7 @@ def parse_mt940(data):
                     elif subtyp.startswith('3'):
                         absender = ' '.join([absender, element])
                 # fix simple typos in WLXXXXXXX
-                verwendungszweck = re.sub(r'[Ww][Ll] ?(\d\d\d\d\d\d\d)', r'WL\1', verwendungszweck)
+                verwendungszweck = re.sub(r'[Ww][Ll] ?(\d\d\d\d\d\d\d\d?)', r'WL\1', verwendungszweck)
                 # remove duplicate spaces
                 verwendungszweck = re.sub(r' +', r' ', verwendungszweck)
                 guid = ':'.join([transaction_reference_number, statement_nr, quellblz, quellkonto, amount, verwendungszweck])
@@ -162,17 +162,17 @@ def write_ofx(account, vorgaenge, inputname):
         ET.SubElement(stmttrn, 'FITID').text = guid.replace('*', '.')
         verwendungszweck = verwendungszweck.strip()
         # extract references like WL0000000 SFYX0000
-        m = re.search(r'(WL\d\d\d\d\d\d\d|SFYX\d\d\d\d)', verwendungszweck)
+        checknum = ''
+        m = re.search(r'(WL\d\d\d\d\d\d\d\d?|SFYX\d\d\d\d)', verwendungszweck)
         if m:
             checknum = m.group(0)
-            print checknum
             # reference/Check number, A-12
             ET.SubElement(stmttrn, 'CHECKNUM').text = checknum
         # PAYEE
         ET.SubElement(stmttrn, 'NAME').text = absender.strip()
         # Format: A-255 for <MEMO>, used in V1 message sets A <MEMO> provides additional information
         # about a transaction.
-        ET.SubElement(stmttrn, 'MEMO').text = (' '.join([verwendungszweck, description]))[:254]
+        ET.SubElement(stmttrn, 'MEMO').text = (' '.join([verwendungszweck, description, checknum]))[:254].strip()
     
     header = """OFXHEADER:100
 DATA:OFXSGML
