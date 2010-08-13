@@ -1,5 +1,6 @@
 oauth2
-tlslite
+# tlslite #kaputt
+http://trevp.net/tlslite/tlslite-0.3.8.tar.gz
 gdata
 -e git+ssh://git@github.com/hudora/CentralServices#egg=cs
 -e git+ssh://git@github.com/hudora/huSoftM#egg=huSoftM
