@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # encoding: utf-8
 """
-bookkeeping/cyberlogi.py Konkrete Implementierung der Klasse für cyberlogi
+bookkeeping/cyberlogi.py - bookkeeping-Funktionen für Cyberlogi implementiert
 verwended Xero.com als backend
 
 Created by Maximillian Dornseif on 2010-06-04.
@@ -14,15 +14,16 @@ import datetime
 import huTools.unicode
 import oauth2 as oauth
 import urllib
-import warnings
 import xml.etree.ElementTree as ET
-from cs.keychain import XERO_CONSUMER_KEY, XERO_CONSUMER_SECRET, XERO_RSACERT, XERO_RSAKEY
+#from cs.keychain import XERO_CONSUMER_KEY, XERO_CONSUMER_SECRET, XERO_RSACERT, XERO_RSAKEY
 from decimal import Decimal
+from huTools.calendar.formats import convert_to_date
+from huTools.monetary import cent_to_euro
+from huTools.structured import make_struct
 from tlslite.utils import keyfactory
-from bookkeeping.struct import make_struct
 
-
-URL_BASE = 'https://api.xero.com/api.xro/2.0/Invoices'
+# Testing:
+from bookkeeping.keychain import XERO_CONSUMER_KEY, XERO_CONSUMER_SECRET, XERO_RSACERT, XERO_RSAKEY
 
 
 class OAuthSignatureMethod_RSA_SHA1(oauth.SignatureMethod):
@@ -39,7 +40,7 @@ class OAuthSignatureMethod_RSA_SHA1(oauth.SignatureMethod):
     def _fetch_private_cert(self, oauth_request):
         raise NotImplementedError
 
-    def build_signature_base_string(self, oauth_request, consumer, token): # XXX consumer und token ungenutzt?
+    def build_signature_base_string(self, oauth_request, consumer, token):
         sig = (oauth.escape(oauth_request.method),
                oauth.escape(oauth_request.normalized_url),
                oauth.escape(oauth_request.get_normalized_parameters()),
@@ -78,8 +79,11 @@ class XeroOAuthSignatureMethod_RSA_SHA1(OAuthSignatureMethod_RSA_SHA1):
         return XERO_RSAKEY
 
 
-def xero_request(url, method='GET', body='', get_parameters=None, headers=None):
-    """Request an xero durchführen"""
+def xero_request(method='GET', url='', body='', get_parameters=None, headers=None):
+    """Request an xero ausführen"""
+
+    base_url = 'https://api.xero.com/api.xro/2.0/Invoices'
+    url = base_url + url
 
     consumer = oauth.Consumer(key=XERO_CONSUMER_KEY, secret=XERO_CONSUMER_SECRET)
     client = oauth.Client(consumer, token=oauth.Token(key=XERO_CONSUMER_KEY, secret=XERO_CONSUMER_SECRET))
@@ -91,129 +95,142 @@ def xero_request(url, method='GET', body='', get_parameters=None, headers=None):
     if get_parameters:
         url = "%s?%s" % (url, urllib.urlencode(get_parameters))
 
-    response, content = client.request(url, method, body=body, headers={})
-    if response['status'] == '404':
+    response, content = client.request(url, method, body=body, headers=headers)
+    
+    if response.status == 404:
         return None
-    if response['status'] != '200':
+    
+    if response.status != 200:
+        # handle occasional server side glitches
         if content == 'oauth_problem=signature_invalid&oauth_problem_advice=Failed%20to%20validate%20signature':
-            # handle occasion server site glitches
-            return xero_request(url, method, body, headers=headers)
-        if body:
-            print body
-        raise RuntimeError("Return code %s for %s: %s" % (response['status'], url, content))
+            return xero_request(method, url, body, get_parameters, headers)
+        raise RuntimeError("Return code %s for %s: %s" % (response.status, url, content))
     return content
 
 
-def add_orderline(root, description, qty, price, account_code):
-    """Füge Orderline zu XML-Baum hinzu"""
-    lineitem = ET.SubElement(root, 'LineItem')
+def orderline(description, qty, price, account_code):
+    """Erzeuge eine Orderline als XML-Baum"""
+    
+    lineitem = ET.Element('LineItem')
     ET.SubElement(lineitem, 'Description').text = description
     ET.SubElement(lineitem, 'Quantity').text = str(qty)
     ET.SubElement(lineitem, 'UnitAmount').text = str(price)
     ET.SubElement(lineitem, 'AccountCode').text = account_code
+    return lineitem
 
 
-def _convert_to_date(data):
-    """Assumes a RfC 3339 coded date or a date object, returns a date object."""
-    if not hasattr(data, 'strftime'):
-        data = data[:10]  # strip timestamp
-        return datetime.datetime.strptime(data, '%Y-%m-%d')
-    return data
-
-
-def store_invoice(invoice, tax_included=False, draft=False, xero_should_generate_invoice_number=False):
+def create_contact(invoice, address_type='POBOX'):
     """
-    Erzeugt eine (Ausgangs-) Rechnung anhand des Simple Invoice Protocol.
-    Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown
-    """
-
-    if draft:
-        warnings.warn("draft=True is deprecated: SUBMITTED means 'submitted for approval' which is way to go for all auto-generated stuff",
-                      DeprecationWarning)
-
-    invoice = make_struct(invoice)
-    root = ET.Element('Invoices')
-    invoice_element = ET.SubElement(root, 'Invoice')
-    ET.SubElement(invoice_element, 'Type').text = 'ACCREC'
-    ET.SubElement(invoice_element, 'Status').text = 'DRAFT' if draft else 'SUBMITTED'
-    ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Inclusive' if tax_included else 'Exclusive'
-    if invoice.kundenauftragsnr:
-        ET.SubElement(invoice_element, 'Reference').text = invoice.kundenauftragsnr
-    else:
-        ET.SubElement(invoice_element, 'Reference').text = invoice.guid
-    if not xero_should_generate_invoice_number:
-        ET.SubElement(invoice_element, 'InvoiceNumber').text = invoice.guid
-
-    leistungsdatum = _convert_to_date(invoice.leistungszeitpunkt)
-    if invoice.zahlungsziel:
-        leistungszeitpunkt = _convert_to_date(invoice.leistungszeitpunkt)
-        timedelta = datetime.timedelta(days=invoice.zahlungsziel)
-        ET.SubElement(invoice_element, 'DueDate').text = (leistungsdatum + timedelta).strftime('%Y-%m-%d')
-    ET.SubElement(invoice_element, 'Date').text = leistungsdatum.strftime('%Y-%m-%d')
-
-    lineitems = ET.SubElement(invoice_element, 'LineItems')
-    if invoice.infotext_kunde:
-        add_orderline(lineitems, invoice.infotext_kunde, 0, 0, '')
-    for item in invoice.orderlines:
-        item = make_struct(item) # XXX rekursives Verhalten mit in make_struct packen
+    Erzeuge ein Xero-kompatibles Contact-Element
     
-        buchungskonto = '8404'  # default
-        # wenn wir hier Ersatzteile von Neuware trenen könnten, könnten wir die Neuware auf Konto 8406
-        # udn hoogoo Scooter auf Konto 8410 buchen.
-        if item.buchungskonto:
-            buchungskonto = item.buchungskonto
-        text = unicode(item.artnr)
-        if item.infotext_kunde:
-            text = u"%s - %s" % (item.artnr, item.infotext_kunde)
-        add_orderline(lineitems, text, item.menge, cent_to_euro(item.preis), buchungskonto)
-
-    if invoice.versandkosten:
-        add_orderline(lineitems, 'Verpackung & Versand', 1, cent_to_euro(invoice.versandkosten), '8402')
-
-    # Adressdaten
-    contact = ET.SubElement(invoice_element, 'Contact')
-    ET.SubElement(contact, 'Name').text = ' '.join([invoice.name1, invoice.name2])
+    Der Parameter invoice folgt dem AddressProtocol
+    """
+    
+    contact = ET.Element('Contact')
+    
+    ET.SubElement(contact, 'Name').text = invoice.name1
     ET.SubElement(contact, 'EmailAddress').text = huTools.unicode.deUmlaut(invoice.mail)
-    addresses = ET.SubElement(contact, 'Addresses')
-    address = ET.SubElement(addresses, 'Address')
-    ET.SubElement(address, 'AddressType').text = 'POBOX' # Rechnungsadresse
-    #ET.SubElement(address, 'AttentionTo').text = invoice.name1
-
+    address = ET.SubElement(ET.SubElement(contact, 'Addresses'), 'Address')
+    ET.SubElement(address, 'AddressType').text = address_type
+    
     if invoice.name2:
         ET.SubElement(address, 'AddressLine1').text = invoice.name2
         ET.SubElement(address, 'AddressLine2').text = invoice.strasse
     else:
         ET.SubElement(address, 'AddressLine1').text = invoice.strasse
+    
+    if invoice.attention_to:
+        ET.SubElement(address, 'AttentionTo').text = invoice.attention_to
 
     ET.SubElement(address, 'City').text = invoice.ort
     ET.SubElement(address, 'PostalCode').text = invoice.plz
     ET.SubElement(address, 'Country').text = invoice.land
+    
+    return contact
+
+
+def create_invoice(invoice_type, date, tax_included=False, invoice_number=None, reference=None, duedays=None):
+    """Erzeuge die "Kopfdaten" einer Xero-Rechnung"""
+    
+    invoice = ET.Element('Invoice')
+    ET.SubElement(invoice, 'Type').text = invoice_type
+    ET.SubElement(invoice, 'Status').text = 'SUBMITTED'
+    ET.SubElement(invoice, 'LineAmountTypes').text = 'Inclusive' if tax_included else 'Exclusive'
+    
+    if reference:
+        print "setze referenz auf %s" % reference
+        ET.SubElement(invoice, 'Reference').text = reference
+        
+    if invoice_number:
+        ET.SubElement(invoice, 'InvoiceNumber').text = invoice_number
+
+    leistungsdatum = convert_to_date(date)
+    if duedays:
+        timedelta = datetime.timedelta(days=duedays)
+        ET.SubElement(invoice, 'DueDate').text = (leistungsdatum + timedelta).isoformat()
+    ET.SubElement(invoice, 'Date').text = leistungsdatum.isoformat()
+    
+    return invoice
+
+
+def store_invoice(invoice, tax_included=False, xero_should_generate_invoice_number=False):
+    """
+    Erzeugt eine (Ausgangs-) Rechnung anhand des Simple Invoice Protocol.
+    Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown
+    """
+
+    VERSANDKOSTEN_ACCOUNT = '8402'
+    DEFAULT_ACCOUNT = '8404'
+
+    invoice = make_struct(invoice, default='')
+    
+    # kwargs sind die Keyword-Parameter für create_invoice
+    kwargs = {'reference': invoice.kundenauftragsnr or invoice.guid}
+    if not xero_should_generate_invoice_number:
+        kwargs['invoice_number'] = invoice.guid
+    if invoice.zahlungsziel:
+        kwargs['duedays'] = invoice.zahlungsziel
+    invoice_element = create_invoice('ACCREC', invoice.leistungszeitpunkt, tax_included=tax_included, **kwargs)
+    
+    # Orderlines hinzufügen:
+    lineitems = ET.SubElement(invoice_element, 'LineItems')
+    
+    # infotext_kunde als Orderline ohne Wert und Konto hinzufügen
+    if invoice.infotext_kunde:
+        lineitems.append(orderline(invoice.infotext_kunde, 0, 0, ''))
+    
+    for item in invoice.orderlines:
+        item = make_struct(item)
+    
+        buchungskonto = DEFAULT_ACCOUNT
+        
+        # Wenn wir hier Ersatzteile von Neuware trennen könnten, könnten wir die Neuware auf Konto 8406
+        # und hoogoo Scooter auf Konto 8410 buchen.
+        if item.buchungskonto:
+            buchungskonto = item.buchungskonto
+        
+        text = unicode(item.artnr)
+        if item.infotext_kunde:
+            text = u"%s - %s" % (item.artnr, item.infotext_kunde)
+        lineitems.append(orderline(text, item.menge, cent_to_euro(item.preis), buchungskonto))
+
+    if invoice.versandkosten:
+        lineitems.append(orderline('Verpackung & Versand', 1, cent_to_euro(invoice.versandkosten), VERSANDKOSTEN_ACCOUNT))
+
+    # Erzeuge Adressdaten und füge sie hinzu
+    invoice_element.append(create_contact(invoice))
+    
+    root = ET.Element('Invoices')
+    root.append(invoice_element)
     body = ET.tostring(root, encoding='utf-8')
-
-    content = xero_request(URL_BASE, "PUT", body=body, headers={'content-type': 'text/xml; charset=utf-8'})
+    content = xero_request(method="PUT", body=body, headers={'content-type': 'text/xml; charset=utf-8'})
     tree = ET.fromstring(content)
-    return tree.find('Invoices/Invoice/InvoiceID').text
+    return tree.findtext('Invoices/Invoice/InvoiceID')
 
 
-def cent_to_euro(cent_ammount):
+def store_inbound_invoice(invoice, netto=True):
     """
-    Berechne den Eurobetrag aus dem Centbetrag
-
-    >>> cent_to_euro('2317')
-    Decimal('23.17')
-    """
-
-    euro_ammount = Decimal(cent_ammount) / 100
-    return euro_ammount.quantize(Decimal('.01'))
-
-
-# Fast komplette Kopie von store_invoice
-# Nur die AccountCodes sind unterschiedlich
-# TODO: rename to Store inbound_invoice (oder so)
-# TODO: store_hudorainvoice) sollte ein Frontend zu  store_invoice() werden.
-def store_hudorainvoice(invoice, netto=True):
-    """
-    Übertrage eine Eingangsrechnung von HUDORA an Cyberlogi an xero.com
+    Übertrage eine Eingangsrechnung an Cyberlogi nach xero.com
 
     Der Rückgabewert ist die xero.com InvoiceID
     """
@@ -223,31 +240,23 @@ def store_hudorainvoice(invoice, netto=True):
     WAREN_ACCOUNT = '3400'
 
     invoice = make_struct(invoice)
-
-    root = ET.Element('Invoices')
-    invoice_element = ET.SubElement(root, 'Invoice')
+    
     # Reference-Tag kann nur bei Type == 'ACCREC' gesetzt werden
     # Bei 'ACCPAY' bleibt wohl nur der Weg, die InvoiceNumber zu setzen
     # ET.SubElement(invoice, 'Reference').text = invoice.guid
-
-    ET.SubElement(invoice_element, 'InvoiceNumber').text = "%s %s" % (invoice.guid, invoice.kundenauftragsnr)
-    ET.SubElement(invoice_element, 'Type').text = 'ACCPAY'
-    ET.SubElement(invoice_element, 'Status').text = 'SUBMITTED'
-    ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Exclusive' if netto else 'Inclusive'
-
-    leistungsdatum = _convert_to_date(invoice.leistungszeitpunkt)
-    if invoice.zahlungsziel:
-        timedelta = datetime.timedelta(days=invoice.zahlungsziel)
-        ET.SubElement(invoice_element, 'DueDate').text = (leistungsdatum + timedelta).strftime('%Y-%m-%d')
-    ET.SubElement(invoice_element, 'Date').text = leistungsdatum.strftime('%Y-%m-%d')
-
+    
+    invoice_element = create_invoice('ACCPAY', invoice.leistungszeitpunkt,
+                                     tax_included=netto,
+                                     invoice_number="%s %s" % (invoice.guid, invoice.kundenauftragsnr),
+                                     duedays=getattr(invoice, 'zahlungsziel', None))
+    
     lineitems = ET.SubElement(invoice_element, 'LineItems')
     if invoice.infotext_kunde:
-        add_orderline(lineitems, invoice.infotext_kunde, 0, 0, '')
+        lineitems.append(orderline(invoice.infotext_kunde, 0, 0, ''))
     if invoice.kundenauftragsnr:
-        add_orderline(lineitems, "Kundenauftragsnr: %s" % invoice.kundenauftragsnr, 0, 0, '')
-
-    total = Decimal(0)
+        lineitems.append(orderline('Kundenauftragsnr: %s' % invoice.kundenauftragsnr, 0, 0, ''))
+    
+    total = Decimal()
     for item in invoice.orderlines:
         item = make_struct(item)
         preis = 0
@@ -255,71 +264,53 @@ def store_hudorainvoice(invoice, netto=True):
             preis = cent_to_euro(item.preis / item.menge)
         # Versandkosten mit spezieller AccountID verbuchen
         if 'ersandkosten' in item.infotext_kunde:
-            add_orderline(lineitems, 'Paketversand DPD', item.menge, preis, VERSANDKOSTEN_ACCOUNT)
+            lineitems.append(orderline('Paketversand DPD', item.menge, preis, VERSANDKOSTEN_ACCOUNT))
         else:
-            add_orderline(lineitems, u"%s - %s" % (item.artnr, item.infotext_kunde), item.menge, preis, WAREN_ACCOUNT)
+            lineitems.append(orderline('%s - %s' % (item.artnr, item.infotext_kunde), item.menge, preis, WAREN_ACCOUNT))
 
         total += preis * item.menge
 
     # 2 Prozent Skonto innerhalb von 8 Tagen
-    add_orderline(lineitems, 'Skonto bis %s' % (datetime.date.today() + datetime.timedelta(days=8)).strftime('%Y-%m-%d'),
-                             '0.02', -total, SKONTO_ACCOUNT)
+    skonto_date = datetime.date.today() + datetime.timedelta(days=8)
+    lineitems.append(orderline('Skonto bis %s' % skonto_date.strftime('%Y-%m-%d'), '0.02', -total, SKONTO_ACCOUNT))
+    
+    # Kommt das nicht aus der Invoice? TODO: Wo wird store_hudorainvoice überhaupt verwendet?
+    contact = {'name1': 'HUDORA GmbH', 'mail': 'a.jaentsch@hudora.de', 'attention_to': 'Buchhaltung',
+               'city': 'Remscheid', 'plz': '42897', 'land': 'DE'}
+    contact = make_struct(contact, default='')
+    
+    invoice_element.append(create_contact(contact, address_type='STREET'))
 
-    contact = ET.SubElement(invoice_element, 'Contact')
-    ET.SubElement(contact, 'Name').text = 'HUDORA GmbH'
-    ET.SubElement(contact, 'EmailAddress').text = 'a.jaentsch@hudora.de'
-    addresses = ET.SubElement(contact, 'Addresses')
-    address = ET.SubElement(addresses, 'Address')
-    ET.SubElement(address, 'AddressType').text = 'STREET'
-    ET.SubElement(address, 'AttentionTo').text = 'Buchhaltung'
-    ET.SubElement(address, 'City').text = 'Remscheid'
-    ET.SubElement(address, 'PostalCode').text = '42897'
-    ET.SubElement(address, 'Country').text = 'DE'
-
+    root = ET.Element('Invoices')
+    root.append(invoice_element)
     body = ET.tostring(root, encoding='utf-8')
-    content = xero_request(URL_BASE, "PUT", body=body, headers={'content-type': 'text/xml; charset=utf-8'})
+    content = xero_request("PUT", body=body, headers={'content-type': 'text/xml; charset=utf-8'})
     tree = ET.fromstring(content)
-    return tree.find('Invoices/Invoice/InvoiceID').text
+    return tree.findtext('Invoices/Invoice/InvoiceID')
 
 
-def get_invoice(lieferscheinnr=None, invoice_id=None):
+def get_invoice(invoice_id):
     """
     Liefert eine Rechnung aus Xero zurück.
 
     Wenn keine Rechnung zu der Lieferscheinnummer existiert, wird None zurückgegeben.
     """
 
-    if lieferscheinnr:
-        warnings.warn("get_invoice(lieferscheinnr=foo) is deprecated: use get_invoice(invoice_id=foo) instead",
-                      DeprecationWarning)
-
-    url = URL_BASE
-    # the where-Parameter seems only to work when querying lists of objects not vertain IDs
-    parameters = ['Status!="DELETED"'] # , 'Status!="VOIDED"']
-
-    if lieferscheinnr is None and invoice_id is None:
-        raise ValueError("lieferscheinnr or invoice_id required")
-
-    if lieferscheinnr:
-        parameters.append('Reference=="%s"' % lieferscheinnr)
-    if invoice_id:
-        url += '/%s' % urllib.quote(invoice_id)
-
-    get_parameters = {'where': "&&".join(parameters)}
-    content = xero_request(url, get_parameters=get_parameters)
+    url = '/%s' % urllib.quote(invoice_id)
+    content = xero_request(url=url, get_parameters={'where': 'Status!="DELETED"'})
+    
+    if not content:
+        return []
+    
     invoices = []
-
-    if content:
-        tree = ET.fromstring(content)
-        for element in tree.getiterator('Invoice'):
-            invoice = {}
-            for attr in '''Reference Date DueDate Status LineAmountTypes SubTotal TotalTax Total UpdatedDateUTC
-                           CurrencyCode InvoiceID InvoiceNumber AmountDue AmountPaid'''.split():
-                subelement = element.find(attr)
-                if not subelement is None:
-                    invoice[attr] = subelement.text
-            if invoice.get('Status') not in ['DELETED']:
-                invoices.append(invoice)
+    tree = ET.fromstring(content)
+    for element in tree.getiterator('Invoice'):
+        invoice = {}
+        for attr in ('Reference', 'Date', 'DueDate', 'Status', 'LineAmountTypes', 'SubTotal', 'TotalTax', 'Total',
+                    'UpdatedDateUTC', 'CurrencyCode' 'InvoiceID' 'InvoiceNumber' 'AmountDue' 'AmountPaid'):
+            tmp = element.findtext(attr)
+            if not tmp is None:
+                invoice[attr] = tmp
     return invoices
 
 
@@ -334,11 +325,28 @@ def list_eingangsrechnungen(firma):
 
 
 def list_invoices(parameters=None, xpath='Invoices/Invoice/InvoiceID'):
-    """Return list of invoice id"""
+    """Return list of invoice ids"""
+    
     tmp = ['Status!="DELETED"', 'Status!="VOIDED"']
     if parameters:
         tmp.extend(parameters)
     get_parameters = {'where': "&&".join(tmp)}
-    content = xero_request(URL_BASE, get_parameters=get_parameters)
+    content = xero_request(get_parameters=get_parameters)
     tree = ET.fromstring(content)
     return [element.text for element in tree.findall(xpath)]
+
+
+# Zur Vereinheitlichung von SoftM- und Xero-Rechnungen:
+# class Invoice(object):
+#     """Implementierung der Rechnungsklasse für Xero"""
+#     
+#     def __init__(self):
+#         pass
+#     
+#     @classmethod
+#     def get(cls, invoice_id):
+#         instance = cls()
+#         
+#         invoice = get_invoice(invoice_id=invoice_id)
+#         instance. 
+#         return instance
