@@ -79,10 +79,10 @@ class XeroOAuthSignatureMethod_RSA_SHA1(OAuthSignatureMethod_RSA_SHA1):
         return XERO_RSAKEY
 
 
-def xero_request(method='GET', url='', body='', get_parameters=None, headers=None):
+def xero_request(url, method='GET', body='', get_parameters=None, headers=None):
     """Request an xero ausführen"""
 
-    base_url = 'https://api.xero.com/api.xro/2.0/Invoices'
+    base_url = 'https://api.xero.com/api.xro/2.0/'
     url = base_url + url
 
     consumer = oauth.Consumer(key=XERO_CONSUMER_KEY, secret=XERO_CONSUMER_SECRET)
@@ -103,7 +103,7 @@ def xero_request(method='GET', url='', body='', get_parameters=None, headers=Non
     if response.status != 200:
         # handle occasional server side glitches
         if content == 'oauth_problem=signature_invalid&oauth_problem_advice=Failed%20to%20validate%20signature':
-            return xero_request(method, url, body, get_parameters, headers)
+            return xero_request(url, method, body, get_parameters, headers)
         raise RuntimeError("Return code %s for %s: %s" % (response.status, url, content))
     return content
 
@@ -223,7 +223,7 @@ def store_invoice(invoice, tax_included=False, xero_should_generate_invoice_numb
     root = ET.Element('Invoices')
     root.append(invoice_element)
     body = ET.tostring(root, encoding='utf-8')
-    content = xero_request(method="PUT", body=body, headers={'content-type': 'text/xml; charset=utf-8'})
+    content = xero_request('Invoices', 'PUT', body, headers={'content-type': 'text/xml; charset=utf-8'})
     tree = ET.fromstring(content)
     return tree.findtext('Invoices/Invoice/InvoiceID')
 
@@ -284,7 +284,7 @@ def store_inbound_invoice(invoice, netto=True):
     root = ET.Element('Invoices')
     root.append(invoice_element)
     body = ET.tostring(root, encoding='utf-8')
-    content = xero_request("PUT", body=body, headers={'content-type': 'text/xml; charset=utf-8'})
+    content = xero_request('Invoices', 'PUT', body, headers={'content-type': 'text/xml; charset=utf-8'})
     tree = ET.fromstring(content)
     return tree.findtext('Invoices/Invoice/InvoiceID')
 
@@ -296,8 +296,8 @@ def get_invoice(invoice_id):
     Wenn keine Rechnung zu der Lieferscheinnummer existiert, wird None zurückgegeben.
     """
 
-    url = '/%s' % urllib.quote(invoice_id)
-    content = xero_request(url=url, get_parameters={'where': 'Status!="DELETED"'})
+    url = 'Invoices/%s' % urllib.quote(invoice_id)
+    content = xero_request(url, get_parameters={'where': 'Status!="DELETED"'})
     
     if not content:
         return []
@@ -311,6 +311,7 @@ def get_invoice(invoice_id):
             tmp = element.findtext(attr)
             if not tmp is None:
                 invoice[attr] = tmp
+        invoices.append(invoice)
     return invoices
 
 
@@ -331,7 +332,7 @@ def list_invoices(parameters=None, xpath='Invoices/Invoice/InvoiceID'):
     if parameters:
         tmp.extend(parameters)
     get_parameters = {'where': "&&".join(tmp)}
-    content = xero_request(get_parameters=get_parameters)
+    content = xero_request('Invoices', get_parameters=get_parameters)
     tree = ET.fromstring(content)
     return [element.text for element in tree.findall(xpath)]
 
@@ -350,3 +351,106 @@ def list_invoices(parameters=None, xpath='Invoices/Invoice/InvoiceID'):
 #         invoice = get_invoice(invoice_id=invoice_id)
 #         instance. 
 #         return instance
+
+
+def list_creditnotes(parameters=None, xpath='CreditNotes/CreditNote/CreditNoteID'):
+    """Return list of creditnote ids"""
+    
+    tmp = ['Status!="DELETED"', 'Status!="VOIDED"']
+    if parameters:
+        tmp.extend(parameters)
+    get_parameters = {'where': "&&".join(tmp)}
+    content = xero_request('CreditNote', get_parameters=get_parameters)
+    tree = ET.fromstring(content)
+    return [element.text for element in tree.findall(xpath)]
+
+
+# Gutschriften - Credit Notes
+def get_creditnote(creditnote_id):
+    """
+    Liefert eine Gutschrift aus Xero zurück.
+
+    Wenn keine Gutschrift existiert, wird None zurückgegeben.
+    """
+
+    url = 'CreditNotes/%s' % urllib.quote(creditnote_id)
+    content = xero_request(url, get_parameters={'where': 'Status!="DELETED"'})
+    
+    print content
+    
+    if not content:
+        return []
+    
+    creditnotes = []
+    tree = ET.fromstring(content)
+    for element in tree.getiterator('CreditNote'):
+        creditnote = {}
+        for attr in ('Reference', 'Date', 'Status', 'LineAmountTypes', 'SubTotal', 'TotalTax', 'Total',
+                    'UpdatedDateUTC', 'CurrencyCode' 'CreditNoteID' 'CreditNoteNumber' 'FullyPaidOnDate'):
+            tmp = element.findtext(attr)
+            if not tmp is None:
+                creditnote[attr] = tmp
+        creditnotes.append(creditnote)        
+    return creditnotes
+
+
+def create_creditnote(date, tax_included=False, creditnote_number=None, reference=None):
+    """Erzeuge die "Kopfdaten" einer Xero-Rechnung"""
+    
+    creditnote = ET.Element('CreditNote')
+    # ET.SubElement(creditnote, 'Status').text = 'SUBMITTED'
+    ET.SubElement(creditnote, 'LineAmountTypes').text = 'Inclusive' if tax_included else 'Exclusive'
+    ET.SubElement(creditnote, 'Type').text = 'ACCRECCREDIT'
+    
+    if reference:
+        ET.SubElement(creditnote, 'Reference').text = reference
+        
+    if creditnote_number:
+        ET.SubElement(creditnote, 'CreditNoteNumber').text = creditnote_number
+
+    leistungsdatum = convert_to_date(date)
+    ET.SubElement(creditnote, 'Date').text = leistungsdatum.isoformat()
+    ET.SubElement(creditnote, 'DueDate').text = leistungsdatum.isoformat()
+    
+    return creditnote
+
+
+def store_creditnote(data, autogenerate_number=False, tax_included=False):
+    """
+    Erzeugt eine Gutschrift
+    """
+    DEFAULT_ACCOUNT = '710'
+    
+    data = make_struct(data, default='')
+    
+    # kwargs sind die Keyword-Parameter für create_creditnote
+    kwargs = {'reference': data.kundenauftragsnr or data.guid}
+    if not autogenerate_number:
+        kwargs['creditnote_number'] = data.guid
+    creditnote_element = create_creditnote(data.leistungszeitpunkt, tax_included=tax_included, **kwargs)
+    
+    # Orderlines hinzufügen:
+    lineitems = ET.SubElement(creditnote_element, 'LineItems')
+        
+    for item in data.orderlines:
+        item = make_struct(item)
+    
+        buchungskonto = DEFAULT_ACCOUNT
+        if item.buchungskonto:
+            buchungskonto = item.buchungskonto
+        
+        text = unicode(item.artnr)
+        if item.infotext_kunde:
+            text = u"%s - %s" % (item.artnr, item.infotext_kunde)
+        lineitems.append(orderline(text, item.menge, cent_to_euro(item.preis), buchungskonto))
+
+    # Erzeuge Adressdaten und füge sie hinzu
+    creditnote_element.append(create_contact(data))
+    #ET.SubElement(ET.SubElement(creditnote_element, 'Contact'), 'Name').text = 'X'
+    
+    root = ET.Element('CreditNotes')
+    root.append(creditnote_element)
+    body = ET.tostring(root, encoding='utf-8')
+    content = xero_request('CreditNote', 'PUT', body, headers={'content-type': 'text/xml; charset=utf-8'})
+    tree = ET.fromstring(content)
+    return tree.findtext('CreditNotes/CreditNote/CreditNoteID')
