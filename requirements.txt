@@ -1,5 +1,5 @@
 oauth2
-tlslite
+http://cloud.github.com/downloads/mdornseif/tlslite/tlslite-0.3.8.tar.gz
 gdata
 -e git+ssh://git@github.com/hudora/CentralServices#egg=cs
 -e git+ssh://git@github.com/hudora/huSoftM#egg=huSoftM
