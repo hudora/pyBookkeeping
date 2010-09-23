@@ -1,6 +1,6 @@
 oauth2
 tlslite
 gdata
--e git+ssh://git@github.com/hudora/CentralServices#egg=cs
--e git+ssh://git@github.com/hudora/huSoftM#egg=huSoftM
--e git+ssh://git@github.com/hudora/hudoratools#egg=hudoratools
+--editable git+ssh://git@github.com/hudora/CentralServices#egg=cs
+--editable git+ssh://git@github.com/hudora/huSoftM#egg=huSoftM
+--editable git+ssh://git@github.com/hudora/hudoratools#egg=hudoratools
