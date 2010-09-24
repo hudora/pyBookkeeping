@@ -1,4 +1,4 @@
-# Django settings for api_server project.
+# Django settings for bookkeeping.api project.
 import os
 
 DEBUG = True
@@ -76,7 +76,7 @@ MIDDLEWARE_CLASSES = (
     'django.contrib.messages.middleware.MessageMiddleware',
 )
 
-ROOT_URLCONF = 'api_server.urls'
+ROOT_URLCONF = 'urls'
 
 TEMPLATE_DIRS = (
     # Put strings here, like "/home/html/django_templates" or "C:/www/django/templates".

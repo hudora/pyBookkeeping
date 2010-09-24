@@ -6,9 +6,9 @@ admin.autodiscover()
 
 
 urlpatterns = patterns('',
-    (r'^bookkeeping/', include('api_server.api.urls')),
     (r'^admin/', include(admin.site.urls)),
     (r'^accounts/login/$', 'django.contrib.auth.views.login'),
+    (r'^bookkeeping/', include('bookkeeping.api.urls')),
 )
 
 

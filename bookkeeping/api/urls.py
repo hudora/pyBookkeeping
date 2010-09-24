@@ -13,7 +13,7 @@ from piston.resource import Resource
 from piston.authentication import OAuthAuthentication
 from piston.authentication import HttpBasicAuthentication
 
-from api_server.api.handlers import InvoiceHandler, KreditLimitHandler, OPHandler
+from bookkeeping.api.handlers import InvoiceHandler, KreditLimitHandler, OPHandler
 
 
 # see http://andrew.io/weblog/2010/01/django-piston-and-handling-csrf-tokens/
