@@ -66,3 +66,18 @@ def get_invoice(rechnungsnr):
                                       'preis': int(position['wert_netto'] * 100),
                                      })
     return invoice
+
+
+def kredit_limit(kundennr):
+    """Höhe des Kreditlimits für diesen Kunden zurückgeben.
+
+    Derzeit nur ein Wrapper um husoftm.kunden.kredit_limit."""
+    return husoftm.kunden.kredit_limit(kundennr)
+
+
+def offene_posten(kundennr):
+    """Offene Posten für diesen Kunden ermitteln.
+
+    Derzeit nur ein Wrapper um husoftm.kunden.offene_posten."""
+    return husoftm.kunden.offene_posten(kundennr)
+

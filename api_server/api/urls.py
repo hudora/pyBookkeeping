@@ -13,7 +13,7 @@ from piston.resource import Resource
 from piston.authentication import OAuthAuthentication
 from piston.authentication import HttpBasicAuthentication
 
-from api_server.api.handlers import InvoiceHandler
+from api_server.api.handlers import InvoiceHandler, KreditLimitHandler, OPHandler
 
 
 # see http://andrew.io/weblog/2010/01/django-piston-and-handling-csrf-tokens/
@@ -28,9 +28,14 @@ class CsrfExemptResource(Resource):
 auth = HttpBasicAuthentication()
 
 invoicehandler = CsrfExemptResource(InvoiceHandler, authentication=auth)
+creditlinehandler = CsrfExemptResource(KreditLimitHandler, authentication=auth)
+ophandler = CsrfExemptResource(OPHandler, authentication=auth)
 
 urlpatterns = patterns('',
     url(r'^invoice/$', invoicehandler),
     url(r'^invoice/(?P<company>\w+)/$', invoicehandler),
+    url(r'^creditline/$', creditlinehandler),
+    url(r'^creditline/(?P<company>\w+)/$', creditlinehandler),
+    url(r'^op/$', ophandler),
+    url(r'^op/(?P<company>\w+)/$', ophandler),
 )
-

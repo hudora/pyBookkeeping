@@ -13,6 +13,7 @@ from piston.handler import BaseHandler
 import piston.utils
 from django import forms
 
+import bookkeeping.hudora
 
 
 class SimpleInvoiceForm(forms.Form):
@@ -36,7 +37,7 @@ class SimpleInvoiceForm(forms.Form):
 
 class InvoiceHandler(BaseHandler):
     """
-    API Handler zur Verwaltung von Artikelpreisen
+    API Handler zur Verwaltung von Rechnungen
     """
 
     allowed_methods = ('GET', 'POST')
@@ -67,3 +68,33 @@ class InvoiceHandler(BaseHandler):
         form = SimpleInvoiceForm(invoice)
         company = company or request.POST['company']
         return company, invoice
+
+
+class KreditLimitHandler(BaseHandler):
+    """
+    API Handler zum Anzeigen des Kreditlimits von Kunden
+    """
+
+    allowed_methods = ('GET', )
+
+    def read(self, request, company=None):
+        company = company or request.GET['company']
+        kundennr = request.GET.get('kundennr')
+        if 'hudora' == company.lower():
+            return bookkeeping.hudora.kredit_limit(kundennr)
+        return piston.utils.rc.BAD_REQUEST
+
+
+class OPHandler(BaseHandler):
+    """
+    API Handler zum Anzeigen der Offenen Posten eines Kunden
+    """
+
+    allowed_methods = ('GET', )
+
+    def read(self, request, company=None):
+        company = company or request.GET['company']
+        kundennr = request.GET.get('kundennr')
+        if 'hudora' == company.lower():
+            return bookkeeping.hudora.offene_posten(kundennr)
+        return piston.utils.rc.BAD_REQUEST
