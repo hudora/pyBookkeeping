@@ -81,7 +81,8 @@ class KreditLimitHandler(BaseHandler):
         company = company or request.GET['company']
         kundennr = request.GET.get('kundennr')
         if 'hudora' == company.lower():
-            return bookkeeping.hudora.kredit_limit(kundennr, 'consumption' in request.GET)
+            consumption = 'true' in request.GET.get('consumption', '').lower()
+            return bookkeeping.hudora.kredit_limit(kundennr, consumption)
         return piston.utils.rc.BAD_REQUEST
 
 
