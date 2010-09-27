@@ -71,6 +71,7 @@ def get_invoice(rechnungsnr):
 def kredit_limit(kundennr, consumption=False):
     """Höhe bzw die Ausschöpfung des Kreditlimits für diesen Kunden zurückgeben."""
 
+    kundennr = kundennr.upper().replace("SC", "")
     op = 0
     if consumption:
         op = offene_posten(kundennr)
@@ -81,5 +82,6 @@ def offene_posten(kundennr):
     """Offene Posten für diesen Kunden ermitteln.
 
     Derzeit nur ein Wrapper um husoftm.kunden.offene_posten."""
+    kundennr = kundennr.upper().replace("SC", "")
     return husoftm.kunden.offene_posten(kundennr)
 
