@@ -9,7 +9,6 @@ REST API Client für Bookkeeping
 # Copyright (c) 2010 HUDORA. All rights reserved.
 
 
-from django.conf import settings
 from restkit import Resource, BasicAuth
 import datetime
 import simplejson as json
@@ -31,9 +30,34 @@ def datestr(date):
         date = date.isoformat()
     return date
 
+def get_client(**kwargs):
+    """
+    Erzeuge Client-Instanz für Bookkeeping API
+    
+    Die erforderliche Konfiguration kann durchgeführt werden über:
+    * Über Keyword-Parameter username, password und endpoint
+    * Umgebungsvariblen (BK_API_USERNAME, BK_API_PASSWORD, BK_API_ENDPOINT)
+    * Django settings: settings.BK_API als dict mit den Schlüsseln 'username', 'password', 'endpoint'
+    
+    Diese Reihenfolge entspricht der Suchreihenfolge.
+    """
+    
+    import os
+    try:
+        from django.conf import settings
+        bk_settings = getattr(settings, 'BK_API', {})
+    except ImportError:
+        bk_settings = {}
+    
+    for param in 'username', 'password', 'endpoint':
+        if not param in kwargs:
+            kwargs[param] = os.environ.get("BOOKKEEPING_API_%s" % param.upper(), bk_settings.get(param, None))
+    
+    return Bookkeeping(kwargs.get('username'), kwargs.get('password'), kwargs.get('endpoint'))
+
 
 class Bookkeeping(Resource):
-    """API Client für InventoryControl"""
+    """API Client für Bookkeeping"""
 
     def __init__(self, username, password, endpoint=None, pool_instance=None, **kwargs):
         auth = BasicAuth(username, password)
@@ -44,7 +68,7 @@ class Bookkeeping(Resource):
             filters = [auth]
 
         super(Bookkeeping, self).__init__(endpoint, follow_redirect=True, max_follow_redirect=10,
-                                        pool_instance=pool_instance, filters=filters, **kwargs)
+                                          pool_instance=pool_instance, filters=filters, **kwargs)
 
     def request(self, *args, **kwargs):
         response = super(Bookkeeping, self).request(*args, **kwargs)
@@ -59,42 +83,5 @@ class Bookkeeping(Resource):
         """
         return self.post('invoice/%s/' % company, json.dumps(invoice), headers={'Content-Type': 'application/json'})
 
-if __name__ == '__main__':
-    invoice = {
-        "infotext_kunde": "xxy",
-        "leistungszeitpunkt": "2010-08-01",
-        "land": "DE",
-        "tel": "+49 2191 60912-5217",
-        "kundenauftragsnr": "kdauftr123123",
-        "ort": "Remscheid",
-        "orderlines": [
-            {
-                "infotext_kunde": "",
-                "preis": 236,
-                "guid": "WL20000023-0000",
-                "menge": 1,
-                "artnr": "WS15201"
-            },
-            {
-                "infotext_kunde": "",
-                "preis": 71,
-                "guid": "WL20000023-0001",
-                "menge": 2,
-                "artnr": "WS11748"
-            }
-        ],
-        "versandkosten": 480,
-        "plz": "42897",
-        "erfasst_von": "Webshop",
-        "name2": "TESTKAUF!",
-        "preis": 858,
-        "name1": "Christoph Borgolte",
-        "mail": "chris@5711.org",
-        "strasse": "Jägerwald 13",
-        "guid": "WL20000023"
-    }
-
-    #bk = Bookkeeping('admin', 'admin', 'http://api.hudora.biz:8080/bookkeeping/')
-    bk = Bookkeeping('admin', 'admin', 'http://localhost:8000/bookkeeping/')
-    print bk.create_invoice('hudora', invoice)
-    #print bk.invoice('hudora', '51591919', datetime.date.today())
+    def creditline(self, company, kundennr, consumption):
+        return self.get('creditline/', company=company, kundennr=kundennr, consumption=consumption)

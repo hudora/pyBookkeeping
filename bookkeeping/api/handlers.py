@@ -8,7 +8,6 @@
 # Copyright (c) 2010 HUDORA. All rights reserved.
 
 
-from django.conf import settings
 from piston.handler import BaseHandler
 import piston.utils
 from django import forms
@@ -48,7 +47,7 @@ class InvoiceHandler(BaseHandler):
         rechnungsnr = request.GET.get('rechnungsnr')
         days = request.GET.get('days')
 
-        # so könnte da aussehen:
+        # so könnte das aussehen:
         #if 'hudora' == company.lower():
         #    invoices = bookkeeping.hudora.list_invoices(kundennr, days=None)
         #elif 'cyberlogi' == company.lower():
