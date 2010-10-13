@@ -14,6 +14,7 @@ import datetime
 import huTools.unicode
 import oauth2 as oauth
 import urllib
+import urlparse
 import xml.etree.ElementTree as ET
 #from cs.keychain import XERO_CONSUMER_KEY, XERO_CONSUMER_SECRET, XERO_RSACERT, XERO_RSAKEY
 from decimal import Decimal
@@ -79,22 +80,33 @@ class XeroOAuthSignatureMethod_RSA_SHA1(OAuthSignatureMethod_RSA_SHA1):
         return XERO_RSAKEY
 
 
+def add_query(url, params):
+    """
+    Add GET parameters to a given URL
+    
+    >>> add_query('/sicrit/', {'passphrase': 'fiftyseveneleven'})
+    '/sicrit/?passphrase=fiftyseveneleven'
+    """
+    
+    url_parts = list(urlparse.urlparse(url))
+    query = dict(urlparse.parse_qsl(url_parts[4]))
+    query.update(params)
+    url_parts[4] = urllib.urlencode(query)
+    return urlparse.urlunparse(url_parts)
+
+
 def xero_request(url, method='GET', body='', get_parameters=None, headers=None):
     """Request an xero ausführen"""
-
-    base_url = 'https://api.xero.com/api.xro/2.0/'
-    url = base_url + url
 
     consumer = oauth.Consumer(key=XERO_CONSUMER_KEY, secret=XERO_CONSUMER_SECRET)
     client = oauth.Client(consumer, token=oauth.Token(key=XERO_CONSUMER_KEY, secret=XERO_CONSUMER_SECRET))
     client.set_signature_method(XeroOAuthSignatureMethod_RSA_SHA1())
-
-    if headers is None:
-        headers = {}
-
+    
+    base_url = 'https://api.xero.com/api.xro/2.0/'
+    url = urlparse.urljoin(base_url, url)
     if get_parameters:
-        url = "%s?%s" % (url, urllib.urlencode(get_parameters))
-
+        url = add_query(url, get_parameters)
+    
     response, content = client.request(url, method, body=body, headers=headers)
     
     if response.status == 404:
@@ -149,6 +161,11 @@ def create_contact(invoice, address_type='POBOX'):
     return contact
 
 
+##############################################################################
+# Rechnungen - Invoices
+##############################################################################
+
+
 def create_invoice(invoice_type, date, tax_included=False, invoice_number=None, reference=None, duedays=None):
     """Erzeuge die "Kopfdaten" einer Xero-Rechnung"""
     
@@ -158,7 +175,6 @@ def create_invoice(invoice_type, date, tax_included=False, invoice_number=None, 
     ET.SubElement(invoice, 'LineAmountTypes').text = 'Inclusive' if tax_included else 'Exclusive'
     
     if reference:
-        print "setze referenz auf %s" % reference
         ET.SubElement(invoice, 'Reference').text = reference
         
     if invoice_number:
@@ -201,23 +217,26 @@ def store_invoice(invoice, tax_included=False, xero_should_generate_invoice_numb
     
     for item in invoice.orderlines:
         item = make_struct(item)
-    
         buchungskonto = DEFAULT_ACCOUNT
         
         # Wenn wir hier Ersatzteile von Neuware trennen könnten, könnten wir die Neuware auf Konto 8406
         # und hoogoo Scooter auf Konto 8410 buchen.
+        # Anm.: Dazu: Account-Codes raus hier und in das invoice-Ding mit rein! Als item.buchungskonto
         if item.buchungskonto:
             buchungskonto = item.buchungskonto
         
-        text = unicode(item.artnr)
         if item.infotext_kunde:
             text = u"%s - %s" % (item.artnr, item.infotext_kunde)
+        else:
+            text = unicode(item.artnr)
+        
         lineitems.append(orderline(text, item.menge, cent_to_euro(item.preis), buchungskonto))
 
+    # Anm.: Und woher dann den Account-Code hier nehmen?
     if invoice.versandkosten:
         lineitems.append(orderline('Verpackung & Versand', 1, cent_to_euro(invoice.versandkosten), VERSANDKOSTEN_ACCOUNT))
 
-    # Erzeuge Adressdaten und füge sie hinzu
+    # Erzeuge Adressdaten für die Rechnung
     invoice_element.append(create_contact(invoice))
     
     root = ET.Element('Invoices')
@@ -241,7 +260,7 @@ def store_inbound_invoice(invoice, netto=True):
 
     invoice = make_struct(invoice)
     
-    # Reference-Tag kann nur bei Type == 'ACCREC' gesetzt werden
+    # Reference-Tag kann nur bei Typ 'ACCREC' gesetzt werden
     # Bei 'ACCPAY' bleibt wohl nur der Weg, die InvoiceNumber zu setzen
     # ET.SubElement(invoice, 'Reference').text = invoice.guid
     
@@ -254,7 +273,7 @@ def store_inbound_invoice(invoice, netto=True):
     if invoice.infotext_kunde:
         lineitems.append(orderline(invoice.infotext_kunde, 0, 0, ''))
     if invoice.kundenauftragsnr:
-        lineitems.append(orderline('Kundenauftragsnr: %s' % invoice.kundenauftragsnr, 0, 0, ''))
+        lineitems.append(orderline(u'Kundenauftragsnr: %s' % invoice.kundenauftragsnr, 0, 0, ''))
     
     total = Decimal()
     for item in invoice.orderlines:
@@ -274,7 +293,8 @@ def store_inbound_invoice(invoice, netto=True):
     skonto_date = datetime.date.today() + datetime.timedelta(days=8)
     lineitems.append(orderline('Skonto bis %s' % skonto_date.strftime('%Y-%m-%d'), '0.02', -total, SKONTO_ACCOUNT))
     
-    # Kommt das nicht aus der Invoice? TODO: Wo wird store_hudorainvoice überhaupt verwendet?
+    # TODO: Kommt das nicht aus der Invoice?
+    # TODO: Wo wird store_inbound_invoice überhaupt verwendet?
     contact = {'name1': 'HUDORA GmbH', 'mail': 'a.jaentsch@hudora.de', 'attention_to': 'Buchhaltung',
                'city': 'Remscheid', 'plz': '42897', 'land': 'DE'}
     contact = make_struct(contact, default='')
@@ -291,7 +311,7 @@ def store_inbound_invoice(invoice, netto=True):
 
 def get_invoice(invoice_id):
     """
-    Liefert eine Rechnung aus Xero zurück.
+    Liefert eine Liste mit Rechnungen aus Xero zurück.
 
     Wenn keine Rechnung zu der Lieferscheinnummer existiert, wird None zurückgegeben.
     """
@@ -317,7 +337,7 @@ def get_invoice(invoice_id):
 
 def list_eingangsrechnungen(firma):
     """
-    Ermittle die Eingangsrechnungen von Firma mit namen firma
+    Ermittle die Eingangsrechnungen von Firma mit Namen `firma`
     und gib eine Liste der Reference-Elemente zurück.
     """
 
@@ -337,21 +357,9 @@ def list_invoices(parameters=None, xpath='Invoices/Invoice/InvoiceID'):
     return [element.text for element in tree.findall(xpath)]
 
 
-# Zur Vereinheitlichung von SoftM- und Xero-Rechnungen:
-# class Invoice(object):
-#     """Implementierung der Rechnungsklasse für Xero"""
-#     
-#     def __init__(self):
-#         pass
-#     
-#     @classmethod
-#     def get(cls, invoice_id):
-#         instance = cls()
-#         
-#         invoice = get_invoice(invoice_id=invoice_id)
-#         instance. 
-#         return instance
-
+##############################################################################
+# Gutschriften - Credit Notes
+##############################################################################
 
 def list_creditnotes(parameters=None, xpath='CreditNotes/CreditNote/CreditNoteID'):
     """Return list of creditnote ids"""
@@ -365,7 +373,6 @@ def list_creditnotes(parameters=None, xpath='CreditNotes/CreditNote/CreditNoteID
     return [element.text for element in tree.findall(xpath)]
 
 
-# Gutschriften - Credit Notes
 def get_creditnote(creditnote_id):
     """
     Liefert eine Gutschrift aus Xero zurück.
@@ -395,7 +402,7 @@ def get_creditnote(creditnote_id):
 
 
 def create_creditnote(date, tax_included=False, creditnote_number=None, reference=None):
-    """Erzeuge die "Kopfdaten" einer Xero-Rechnung"""
+    """Erzeuge die "Kopfdaten" einer Xero-Gutschrift"""
     
     creditnote = ET.Element('CreditNote')
     # ET.SubElement(creditnote, 'Status').text = 'SUBMITTED'
@@ -419,6 +426,8 @@ def store_creditnote(data, autogenerate_number=False, tax_included=False):
     """
     Erzeugt eine Gutschrift
     """
+    
+    # TODO: s.o.
     DEFAULT_ACCOUNT = '710'
     
     data = make_struct(data, default='')
@@ -444,9 +453,8 @@ def store_creditnote(data, autogenerate_number=False, tax_included=False):
             text = u"%s - %s" % (item.artnr, item.infotext_kunde)
         lineitems.append(orderline(text, item.menge, cent_to_euro(item.preis), buchungskonto))
 
-    # Erzeuge Adressdaten und füge sie hinzu
+    # Erzeuge Adressdaten
     creditnote_element.append(create_contact(data))
-    #ET.SubElement(ET.SubElement(creditnote_element, 'Contact'), 'Name').text = 'X'
     
     root = ET.Element('CreditNotes')
     root.append(creditnote_element)
