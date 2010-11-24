@@ -235,9 +235,17 @@ def store_hudorainvoice(invoice, netto=True):
     ET.SubElement(invoice_element, 'Status').text = 'SUBMITTED'
     ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Exclusive' if netto else 'Inclusive'
 
-    leistungsdatum = _convert_to_date(invoice.leistungszeitpunkt)
-    if invoice.zahlungsziel:
-        timedelta = datetime.timedelta(days=invoice.zahlungsziel)
+    if invoice.leistungszeitpunkt:  # das Feld heisst in SoftM "leistungszeitpunkt"
+        leistungsdatum = _convert_to_date(invoice.leistungszeitpunkt)
+    elif invoice.rechnungsdatum:    # das Feld heisst in EDIhub "rechnungsdatum"
+        leistungsdatum = _convert_to_date(invoice.rechnungsdatum)
+    else:
+        raise Exception('es konnte kein Leistungs-/ Rechnungsdatum gefunden werden!')
+
+    # das Feld heisst in SoftM "zahlungsziel", in EDIhub aber "zahlungstage"
+    zahlungstage = invoice.zahlungsziel or invoice.zahlungstage
+    if zahlungstage:
+        timedelta = datetime.timedelta(days=zahlungstage)
         ET.SubElement(invoice_element, 'DueDate').text = (leistungsdatum + timedelta).strftime('%Y-%m-%d')
     ET.SubElement(invoice_element, 'Date').text = leistungsdatum.strftime('%Y-%m-%d')
 
@@ -251,8 +259,12 @@ def store_hudorainvoice(invoice, netto=True):
     for item in invoice.orderlines:
         item = make_struct(item)
         preis = 0
-        if item.preis and item.menge:
-            preis = cent_to_euro(item.preis / item.menge)
+        if item.menge:
+            if item.preis:          # das Feld heisst "preis" in den Daten aus SoftM
+                preis = cent_to_euro(item.preis / item.menge)
+            elif item.warenwert:    # das Feld heisst "warenwert" in den Daten aus EDIhub
+                preis = cent_to_euro(item.warenwert / item.menge)
+
         # Versandkosten mit spezieller AccountID verbuchen
         if 'ersandkosten' in item.infotext_kunde:
             add_orderline(lineitems, 'Paketversand DPD', item.menge, preis, VERSANDKOSTEN_ACCOUNT)
