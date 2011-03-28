@@ -266,10 +266,11 @@ def store_hudorainvoice(invoice, netto=True):
                 preis = cent_to_euro(item.warenwert / item.menge)
 
         # Versandkosten mit spezieller AccountID verbuchen
-        if 'ersandkosten' in item.infotext_kunde:
+        infotext_kunde = item.infotext_kunde or ''
+        if 'ersandkosten' in infotext_kunde:
             add_orderline(lineitems, 'Paketversand DPD', item.menge, preis, VERSANDKOSTEN_ACCOUNT)
         else:
-            add_orderline(lineitems, u"%s - %s" % (item.artnr, item.infotext_kunde), item.menge, preis, WAREN_ACCOUNT)
+            add_orderline(lineitems, u"%s - %s" % (item.artnr, infotext_kunde), item.menge, preis, WAREN_ACCOUNT)
 
         total += preis * item.menge
 
