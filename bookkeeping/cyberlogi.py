@@ -17,6 +17,7 @@ import urllib
 import warnings
 import xml.etree.ElementTree as ET
 from cs.keychain import XERO_CONSUMER_KEY, XERO_CONSUMER_SECRET, XERO_RSACERT, XERO_RSAKEY
+from datetime import date, timedelta
 from decimal import Decimal
 from tlslite.utils import keyfactory
 from bookkeeping.struct import make_struct
@@ -91,7 +92,7 @@ def xero_request(url, method='GET', body='', get_parameters=None, headers=None):
     if get_parameters:
         url = "%s?%s" % (url, urllib.urlencode(get_parameters))
 
-    response, content = client.request(url, method, body=body, headers={})
+    response, content = client.request(url, method, body=body, headers=headers)
     if response['status'] == '404':
         return None
     if response['status'] != '200':
@@ -212,9 +213,17 @@ def cent_to_euro(cent_ammount):
 # TODO: rename to Store inbound_invoice (oder so)
 # TODO: store_hudorainvoice) sollte ein Frontend zu  store_invoice() werden.
 def store_hudorainvoice(invoice, netto=True):
-    """
-    Übertrage eine Eingangsrechnung von HUDORA an Cyberlogi an xero.com
+    """ Uebertragt eine Rechnung von HUDORA nach Xero.com fuer Cyberlogi.
+    Die Methode ist veraltet, da aufgrund des beschraenkten Rate Limitings
+    Rechnungen moeglichst im Block mit store_hudorainvoices() uebertragen
+    werden sollen, nicht mehr einzeln mit dieser Funktion. """
+    warnings.warn("store_hudorainvoice() is deprecated: use store_hudorainvoices() instead",
+                  DeprecationWarning)
+    return store_hudorainvoices([invoice], netto)
 
+def store_hudorainvoices(invoices, netto=True):
+    """ Uebertragt eine Liste von Rechnungen von HUDORA nach Xero.com
+    fuer Cyberlogi.
     Der Rückgabewert ist die xero.com InvoiceID
     """
 
@@ -222,78 +231,105 @@ def store_hudorainvoice(invoice, netto=True):
     VERSANDKOSTEN_ACCOUNT = '3801'
     WAREN_ACCOUNT = '3400'
 
-    invoice = make_struct(invoice)
-
     root = ET.Element('Invoices')
-    invoice_element = ET.SubElement(root, 'Invoice')
-    # Reference-Tag kann nur bei Type == 'ACCREC' gesetzt werden
-    # Bei 'ACCPAY' bleibt wohl nur der Weg, die InvoiceNumber zu setzen
-    # ET.SubElement(invoice, 'Reference').text = invoice.guid
+    for raw_invoice in invoices:
+        invoice = make_struct(raw_invoice)
+        invoice_element = ET.SubElement(root, 'Invoice')
+        # Reference-Tag kann nur bei Type == 'ACCREC' gesetzt werden
+        # Bei 'ACCPAY' bleibt wohl nur der Weg, die InvoiceNumber zu setzen
+        # ET.SubElement(invoice, 'Reference').text = invoice.guid
 
-    ET.SubElement(invoice_element, 'InvoiceNumber').text = "%s %s" % (invoice.guid, invoice.kundenauftragsnr)
-    ET.SubElement(invoice_element, 'Type').text = 'ACCPAY'
-    ET.SubElement(invoice_element, 'Status').text = 'SUBMITTED'
-    ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Exclusive' if netto else 'Inclusive'
+        ET.SubElement(invoice_element, 'InvoiceNumber').text = "%s %s" % (invoice.guid, invoice.kundenauftragsnr)
+        ET.SubElement(invoice_element, 'Type').text = 'ACCPAY'
+        ET.SubElement(invoice_element, 'Status').text = 'SUBMITTED'
+        ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Exclusive' if netto else 'Inclusive'
 
-    if invoice.leistungszeitpunkt:  # das Feld heisst in SoftM "leistungszeitpunkt"
-        leistungsdatum = _convert_to_date(invoice.leistungszeitpunkt)
-    elif invoice.rechnungsdatum:    # das Feld heisst in EDIhub "rechnungsdatum"
-        leistungsdatum = _convert_to_date(invoice.rechnungsdatum)
-    else:
-        raise Exception('es konnte kein Leistungs-/ Rechnungsdatum gefunden werden!')
-
-    # das Feld heisst in SoftM "zahlungsziel", in EDIhub aber "zahlungstage"
-    zahlungstage = invoice.zahlungsziel or invoice.zahlungstage
-    if zahlungstage:
-        timedelta = datetime.timedelta(days=zahlungstage)
-        ET.SubElement(invoice_element, 'DueDate').text = (leistungsdatum + timedelta).strftime('%Y-%m-%d')
-    ET.SubElement(invoice_element, 'Date').text = leistungsdatum.strftime('%Y-%m-%d')
-
-    lineitems = ET.SubElement(invoice_element, 'LineItems')
-    if invoice.infotext_kunde:
-        add_orderline(lineitems, invoice.infotext_kunde, 0, 0, '')
-    if invoice.kundenauftragsnr:
-        add_orderline(lineitems, "Kundenauftragsnr: %s" % invoice.kundenauftragsnr, 0, 0, '')
-
-    total = Decimal(0)
-    for item in invoice.orderlines:
-        item = make_struct(item)
-        preis = 0
-        if item.menge:
-            if item.preis:          # das Feld heisst "preis" in den Daten aus SoftM
-                preis = cent_to_euro(item.preis / item.menge)
-            elif item.warenwert:    # das Feld heisst "warenwert" in den Daten aus EDIhub
-                preis = cent_to_euro(item.warenwert / item.menge)
-
-        # Versandkosten mit spezieller AccountID verbuchen
-        infotext_kunde = item.infotext_kunde or ''
-        if 'ersandkosten' in infotext_kunde:
-            add_orderline(lineitems, 'Paketversand DPD', item.menge, preis, VERSANDKOSTEN_ACCOUNT)
+        if invoice.leistungszeitpunkt:  # das Feld heisst in SoftM "leistungszeitpunkt"
+            leistungsdatum = _convert_to_date(invoice.leistungszeitpunkt)
+        elif invoice.rechnungsdatum:    # das Feld heisst in EDIhub "rechnungsdatum"
+            leistungsdatum = _convert_to_date(invoice.rechnungsdatum)
         else:
-            add_orderline(lineitems, u"%s - %s" % (item.artnr, infotext_kunde), item.menge, preis, WAREN_ACCOUNT)
+            raise Exception('es konnte kein Leistungs-/ Rechnungsdatum gefunden werden!')
 
-        total += preis * item.menge
+        # das Feld heisst in SoftM "zahlungsziel", in EDIhub aber "zahlungstage"
+        zahlungstage = invoice.zahlungsziel or invoice.zahlungstage
+        if zahlungstage:
+            timedelta = datetime.timedelta(days=zahlungstage)
+            ET.SubElement(invoice_element, 'DueDate').text = (leistungsdatum + timedelta).strftime('%Y-%m-%d')
+        ET.SubElement(invoice_element, 'Date').text = leistungsdatum.strftime('%Y-%m-%d')
 
-    # 2 Prozent Skonto innerhalb von 8 Tagen
-    add_orderline(lineitems, 'Skonto bis %s' % (datetime.date.today() + datetime.timedelta(days=8)).strftime('%Y-%m-%d'),
-                             '0.02', -total, SKONTO_ACCOUNT)
+        lineitems = ET.SubElement(invoice_element, 'LineItems')
+        if invoice.infotext_kunde:
+            add_orderline(lineitems, invoice.infotext_kunde, 0, 0, '')
+        if invoice.kundenauftragsnr:
+            add_orderline(lineitems, "Kundenauftragsnr: %s" % invoice.kundenauftragsnr, 0, 0, '')
 
-    contact = ET.SubElement(invoice_element, 'Contact')
-    ET.SubElement(contact, 'Name').text = 'HUDORA GmbH'
-    ET.SubElement(contact, 'EmailAddress').text = 'a.jaentsch@hudora.de'
-    addresses = ET.SubElement(contact, 'Addresses')
-    address = ET.SubElement(addresses, 'Address')
-    ET.SubElement(address, 'AddressType').text = 'STREET'
-    ET.SubElement(address, 'AttentionTo').text = 'Buchhaltung'
-    ET.SubElement(address, 'City').text = 'Remscheid'
-    ET.SubElement(address, 'PostalCode').text = '42897'
-    ET.SubElement(address, 'Country').text = 'DE'
+        total = Decimal(0)
+        for item in invoice.orderlines:
+            item = make_struct(item)
+            preis = 0
+            if item.menge:
+                if item.preis:          # das Feld heisst "preis" in den Daten aus SoftM
+                    preis = cent_to_euro(item.preis / item.menge)
+                elif item.warenwert:    # das Feld heisst "warenwert" in den Daten aus EDIhub
+                    preis = cent_to_euro(item.warenwert / item.menge)
+
+            # Versandkosten mit spezieller AccountID verbuchen
+            infotext_kunde = item.infotext_kunde or ''
+            if 'ersandkosten' in infotext_kunde:
+                add_orderline(lineitems, 'Paketversand DPD', item.menge, preis, VERSANDKOSTEN_ACCOUNT)
+            else:
+                add_orderline(lineitems, u"%s - %s" % (item.artnr, infotext_kunde), item.menge, preis, WAREN_ACCOUNT)
+
+            total += preis * item.menge
+
+        # 2 Prozent Skonto innerhalb von 8 Tagen
+        add_orderline(lineitems, 'Skonto bis %s' % (datetime.date.today() + datetime.timedelta(days=8)).strftime('%Y-%m-%d'),
+                                 '0.02', -total, SKONTO_ACCOUNT)
+
+        contact = ET.SubElement(invoice_element, 'Contact')
+        ET.SubElement(contact, 'Name').text = 'HUDORA GmbH'
+        ET.SubElement(contact, 'EmailAddress').text = 'a.jaentsch@hudora.de'
+        addresses = ET.SubElement(contact, 'Addresses')
+        address = ET.SubElement(addresses, 'Address')
+        ET.SubElement(address, 'AddressType').text = 'STREET'
+        ET.SubElement(address, 'AttentionTo').text = 'Buchhaltung'
+        ET.SubElement(address, 'City').text = 'Remscheid'
+        ET.SubElement(address, 'PostalCode').text = '42897'
+        ET.SubElement(address, 'Country').text = 'DE'
 
     body = ET.tostring(root, encoding='utf-8')
     content = xero_request(URL_BASE, "PUT", body=body, headers={'content-type': 'text/xml; charset=utf-8'})
-    tree = ET.fromstring(content)
-    return tree.find('Invoices/Invoice/InvoiceID').text
+    return ET.fromstring(content)
 
+def found_nonexisting_invoices_since(edihub_rechnungsnummern, tage):
+    """Ueberprueft fuer eine Liste von EDIhub-Rechnungsnummern der Form
+       "RGxxxxxxxx", ob die entsprechende Rechnung nach Xero uebertragen
+       wurde. Um die Abfrage zu beschleunigen werden nur die letzten 'tage'
+       Tage bei Xero ueberprueft."""
+
+    # zuerst den Query-Filter fuer Xero aus den Rechnungsnummern zusammenbauen
+    numbers = ' || '.join(map(lambda no: 'InvoiceNumber.StartsWith("%s")' % no,
+                              edihub_rechnungsnummern))
+    filter = 'Status!="DELETED" && (%s)' % numbers
+
+    # jetzt das fruehestmoegliche Datum ermitteln
+    min_date = date.today() - timedelta(days=tage)
+    if_modified_since = min_date.strftime('%a, %e %b %Y 00:00:00 GMT')
+
+    # und dann mal bei Xero anklopfen
+    json = xero_request('https://api.xero.com/api.xro/2.0/Invoices/',
+                        get_parameters={'where': filter},
+                        headers={'Accept': 'application/json',
+                                 'If-Modified-Since': if_modified_since})
+    data = huTools.hujson.loads(json)
+    if data['Status'] != 'OK':
+        raise Exception('Error while querying Xero for invoices!')
+
+    # schliesslich alle die Nummern rausfiltern, die wir bei Xero gefunden haben
+    found_invoices_nested = map(lambda inv: inv['InvoiceNumber'].split(), data['Invoices'])
+    found_invoices = set([item for sublist in found_invoices_nested for item in sublist])
+    return set(edihub_rechnungsnummern).difference(found_invoices)  
 
 def get_invoice(lieferscheinnr=None, invoice_id=None):
     """
