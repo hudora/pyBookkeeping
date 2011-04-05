@@ -224,7 +224,8 @@ def store_hudorainvoice(invoice, netto=True):
 def store_hudorainvoices(invoices, netto=True):
     """ Uebertragt eine Liste von Rechnungen von HUDORA nach Xero.com
     fuer Cyberlogi.
-    Der Rückgabewert ist die xero.com InvoiceID
+    Der Rückgabewert ist die von Xero gelieferte XML-Nachricht zur weiteren
+    Auswertung durch den Aufrufer (bspw. nach Fehlermeldungen oder Invoice-IDs).
     """
 
     SKONTO_ACCOUNT = '3736'
@@ -242,7 +243,10 @@ def store_hudorainvoices(invoices, netto=True):
         ET.SubElement(invoice_element, 'InvoiceNumber').text = "%s %s" % (invoice.guid, invoice.kundenauftragsnr)
         ET.SubElement(invoice_element, 'Type').text = 'ACCPAY'
         ET.SubElement(invoice_element, 'Status').text = 'SUBMITTED'
-        ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Exclusive' if netto else 'Inclusive'
+        if netto:
+            ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Exclusive'
+        else:
+            ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Inclusive'
 
         if invoice.leistungszeitpunkt:  # das Feld heisst in SoftM "leistungszeitpunkt"
             leistungsdatum = _convert_to_date(invoice.leistungszeitpunkt)
@@ -276,7 +280,7 @@ def store_hudorainvoices(invoices, netto=True):
 
             # Versandkosten mit spezieller AccountID verbuchen
             infotext_kunde = item.infotext_kunde or ''
-            if 'ersandkosten' in infotext_kunde:
+            if 'versandkosten' in infotext_kunde.lower():
                 add_orderline(lineitems, 'Paketversand DPD', item.menge, preis, VERSANDKOSTEN_ACCOUNT)
             else:
                 add_orderline(lineitems, u"%s - %s" % (item.artnr, infotext_kunde), item.menge, preis, WAREN_ACCOUNT)
@@ -302,15 +306,17 @@ def store_hudorainvoices(invoices, netto=True):
     content = xero_request(URL_BASE, "PUT", body=body, headers={'content-type': 'text/xml; charset=utf-8'})
     return ET.fromstring(content)
 
-def found_nonexisting_invoices_since(edihub_rechnungsnummern, tage):
-    """Ueberprueft fuer eine Liste von EDIhub-Rechnungsnummern der Form
+def check_for_hudora_invoices_in_xero(hudora_rechnungsnummern, tage):
+    """Ueberprueft fuer eine Liste von HUDORA-Rechnungsnummern der Form
        "RGxxxxxxxx", ob die entsprechende Rechnung nach Xero uebertragen
        wurde. Um die Abfrage zu beschleunigen werden nur die letzten 'tage'
-       Tage bei Xero ueberprueft."""
+       Tage bei Xero ueberprueft. Als Ergebnis wird ein Set aller der
+       Rechnungsnummern zurueckgeliefert, fuer die noch keine passende
+       Xero-Rechnung ermittelt werden konnten."""
 
     # zuerst den Query-Filter fuer Xero aus den Rechnungsnummern zusammenbauen
     numbers = ' || '.join(map(lambda no: 'InvoiceNumber.StartsWith("%s")' % no,
-                              edihub_rechnungsnummern))
+                              hudora_rechnungsnummern))
     filter = 'Status!="DELETED" && (%s)' % numbers
 
     # jetzt das fruehestmoegliche Datum ermitteln
@@ -326,10 +332,14 @@ def found_nonexisting_invoices_since(edihub_rechnungsnummern, tage):
     if data['Status'] != 'OK':
         raise Exception('Error while querying Xero for invoices!')
 
-    # schliesslich alle die Nummern rausfiltern, die wir bei Xero gefunden haben
+    # schliesslich alle die Nummern rausfiltern, die wir bei Xero gefunden haben. Dazu
+    # splitten wir zuerst den RGxxxx-Teil aus der Xero-Rechnungsnummer heraus. Diese
+    # hat in den Xero-Daten die Form "RGxxxxx webxxxxx ManuellerPostfixNachBezahlung",
+    # und wir brauchen nur den ersten Teil zum Vergleich mit urspruenglichen List von
+    # HUDORA-Rechnungsnummern, die wir als Parameter bekommen haben.
     found_invoices_nested = map(lambda inv: inv['InvoiceNumber'].split(), data['Invoices'])
     found_invoices = set([item for sublist in found_invoices_nested for item in sublist])
-    return set(edihub_rechnungsnummern).difference(found_invoices)  
+    return set(hudora_rechnungsnummern).difference(found_invoices)  
 
 def get_invoice(lieferscheinnr=None, invoice_id=None):
     """
