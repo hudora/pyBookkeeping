@@ -12,6 +12,7 @@ import base64
 import binascii
 import datetime
 import huTools.unicode
+import huTools.hujson
 import oauth2 as oauth
 import urllib
 import warnings
@@ -121,79 +122,96 @@ def _convert_to_date(data):
         return datetime.datetime.strptime(data, '%Y-%m-%d')
     return data
 
-
 def store_invoice(invoice, tax_included=False, draft=False, xero_should_generate_invoice_number=False):
+    """ Erzeugt eine (Ausgangs-) Rechnung anhand des Simple Invoice Protocol.
+    Die Methode ist veraltet, da aufgrund des beschraenkten Rate Limitings
+    Rechnungen moeglichst im Block mit store_invoices() uebertragen
+    werden sollen, nicht mehr einzeln mit dieser Funktion. """
+    warnings.warn("store_invoice() is deprecated: use store_invoices() instead",
+                  DeprecationWarning)
+    return store_invoices([invoice], tax_included, draft, xero_should_generate_invoice_number)
+
+
+def store_invoices(invoices, tax_included=False, draft=False, xero_should_generate_invoice_number=False):
     """
-    Erzeugt eine (Ausgangs-) Rechnung anhand des Simple Invoice Protocol.
+    Erzeugt eine Liste von (Ausgangs-) Rechnungen anhand des Simple Invoice Protocol. Als Ergebnis 
+    wird ein Hash von Rechnungsnummern zu Xero-IDs zurueckgeliefert.
+
     Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown
     """
 
     if draft:
         warnings.warn("draft=True is deprecated: SUBMITTED means 'submitted for approval' which is way to go for all auto-generated stuff",
                       DeprecationWarning)
+    if len(invoices) == 0:
+        return {}
 
-    invoice = make_struct(invoice)
     root = ET.Element('Invoices')
-    invoice_element = ET.SubElement(root, 'Invoice')
-    ET.SubElement(invoice_element, 'Type').text = 'ACCREC'
-    ET.SubElement(invoice_element, 'Status').text = 'DRAFT' if draft else 'SUBMITTED'
-    ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Inclusive' if tax_included else 'Exclusive'
-    if invoice.kundenauftragsnr:
-        ET.SubElement(invoice_element, 'Reference').text = invoice.kundenauftragsnr
-    else:
-        ET.SubElement(invoice_element, 'Reference').text = invoice.guid
-    if not xero_should_generate_invoice_number:
-        ET.SubElement(invoice_element, 'InvoiceNumber').text = invoice.guid
+    for raw_invoice in invoices:
+        invoice = make_struct(raw_invoice)
+        invoice_element = ET.SubElement(root, 'Invoice')
+        ET.SubElement(invoice_element, 'Type').text = 'ACCREC'
+        ET.SubElement(invoice_element, 'Status').text = 'DRAFT' if draft else 'SUBMITTED'
+        ET.SubElement(invoice_element, 'LineAmountTypes').text = 'Inclusive' if tax_included else 'Exclusive'
+        if invoice.kundenauftragsnr:
+            ET.SubElement(invoice_element, 'Reference').text = invoice.kundenauftragsnr
+        else:
+            ET.SubElement(invoice_element, 'Reference').text = invoice.guid
+        if not xero_should_generate_invoice_number:
+            ET.SubElement(invoice_element, 'InvoiceNumber').text = invoice.guid
 
-    leistungsdatum = _convert_to_date(invoice.leistungszeitpunkt)
-    if invoice.zahlungsziel:
-        leistungszeitpunkt = _convert_to_date(invoice.leistungszeitpunkt)
-        timedelta = datetime.timedelta(days=invoice.zahlungsziel)
-        ET.SubElement(invoice_element, 'DueDate').text = (leistungsdatum + timedelta).strftime('%Y-%m-%d')
-    ET.SubElement(invoice_element, 'Date').text = leistungsdatum.strftime('%Y-%m-%d')
+        leistungsdatum = _convert_to_date(invoice.leistungszeitpunkt)
+        if invoice.zahlungsziel:
+            leistungszeitpunkt = _convert_to_date(invoice.leistungszeitpunkt)
+            timedelta = datetime.timedelta(days=invoice.zahlungsziel)
+            ET.SubElement(invoice_element, 'DueDate').text = (leistungsdatum + timedelta).strftime('%Y-%m-%d')
+        ET.SubElement(invoice_element, 'Date').text = leistungsdatum.strftime('%Y-%m-%d')
 
-    lineitems = ET.SubElement(invoice_element, 'LineItems')
-    if invoice.infotext_kunde:
-        add_orderline(lineitems, invoice.infotext_kunde, 0, 0, '')
-    for item in invoice.orderlines:
-        item = make_struct(item) # XXX rekursives Verhalten mit in make_struct packen
-    
-        buchungskonto = '8404'  # default
-        # wenn wir hier Ersatzteile von Neuware trenen könnten, könnten wir die Neuware auf Konto 8406
-        # udn hoogoo Scooter auf Konto 8410 buchen.
-        if item.buchungskonto:
-            buchungskonto = item.buchungskonto
-        text = unicode(item.artnr)
-        if item.infotext_kunde:
-            text = u"%s - %s" % (item.artnr, item.infotext_kunde)
-        add_orderline(lineitems, text, item.menge, cent_to_euro(item.preis), buchungskonto)
+        lineitems = ET.SubElement(invoice_element, 'LineItems')
+        if invoice.infotext_kunde:
+            add_orderline(lineitems, invoice.infotext_kunde, 0, 0, '')
+        for item in invoice.orderlines:
+            item = make_struct(item) # XXX rekursives Verhalten mit in make_struct packen
+        
+            buchungskonto = '8404'  # default
+            # wenn wir hier Ersatzteile von Neuware trenen könnten, könnten wir die Neuware auf Konto 8406
+            # udn hoogoo Scooter auf Konto 8410 buchen.
+            if item.buchungskonto:
+                buchungskonto = item.buchungskonto
+            text = unicode(item.artnr)
+            if item.infotext_kunde:
+                text = u"%s - %s" % (item.artnr, item.infotext_kunde)
+            add_orderline(lineitems, text, item.menge, cent_to_euro(item.preis), buchungskonto)
 
-    if invoice.versandkosten:
-        add_orderline(lineitems, 'Verpackung & Versand', 1, cent_to_euro(invoice.versandkosten), '8402')
+        if invoice.versandkosten:
+            add_orderline(lineitems, 'Verpackung & Versand', 1, cent_to_euro(invoice.versandkosten), '8402')
 
-    # Adressdaten
-    contact = ET.SubElement(invoice_element, 'Contact')
-    ET.SubElement(contact, 'Name').text = ' '.join([invoice.name1, invoice.name2])
-    ET.SubElement(contact, 'EmailAddress').text = huTools.unicode.deUmlaut(invoice.mail)
-    addresses = ET.SubElement(contact, 'Addresses')
-    address = ET.SubElement(addresses, 'Address')
-    ET.SubElement(address, 'AddressType').text = 'POBOX' # Rechnungsadresse
-    #ET.SubElement(address, 'AttentionTo').text = invoice.name1
+        # Adressdaten
+        contact = ET.SubElement(invoice_element, 'Contact')
+        ET.SubElement(contact, 'Name').text = ' '.join([invoice.name1, invoice.name2])
+        ET.SubElement(contact, 'EmailAddress').text = huTools.unicode.deUmlaut(invoice.mail)
+        addresses = ET.SubElement(contact, 'Addresses')
+        address = ET.SubElement(addresses, 'Address')
+        ET.SubElement(address, 'AddressType').text = 'POBOX' # Rechnungsadresse
+        #ET.SubElement(address, 'AttentionTo').text = invoice.name1
 
-    if invoice.name2:
-        ET.SubElement(address, 'AddressLine1').text = invoice.name2
-        ET.SubElement(address, 'AddressLine2').text = invoice.strasse
-    else:
-        ET.SubElement(address, 'AddressLine1').text = invoice.strasse
+        if invoice.name2:
+            ET.SubElement(address, 'AddressLine1').text = invoice.name2
+            ET.SubElement(address, 'AddressLine2').text = invoice.strasse
+        else:
+            ET.SubElement(address, 'AddressLine1').text = invoice.strasse
 
-    ET.SubElement(address, 'City').text = invoice.ort
-    ET.SubElement(address, 'PostalCode').text = invoice.plz
-    ET.SubElement(address, 'Country').text = invoice.land
+        ET.SubElement(address, 'City').text = invoice.ort
+        ET.SubElement(address, 'PostalCode').text = invoice.plz
+        ET.SubElement(address, 'Country').text = invoice.land
+
+    invoice_ids = {}
     body = ET.tostring(root, encoding='utf-8')
-
     content = xero_request(URL_BASE, "PUT", body=body, headers={'content-type': 'text/xml; charset=utf-8'})
     tree = ET.fromstring(content)
-    return tree.find('Invoices/Invoice/InvoiceID').text
+    for invoice in tree.findall('Invoices/Invoice'):
+        invoice_ids[invoice.find('InvoiceNumber').text] = invoice.find('InvoiceID').text
+    return invoice_ids
 
 
 def cent_to_euro(cent_ammount):
