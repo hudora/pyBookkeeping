@@ -10,14 +10,15 @@ Copyright (c) 2010 HUDORA. All rights reserved.
 
 import base64
 import binascii
+import cs.keychain
 import datetime
 import huTools.unicode
 import huTools.hujson
 import oauth2 as oauth
+import os
 import urllib
 import warnings
 import xml.etree.ElementTree as ET
-from cs.keychain import XERO_CONSUMER_KEY, XERO_CONSUMER_SECRET, XERO_RSACERT, XERO_RSAKEY
 from datetime import date, timedelta
 from decimal import Decimal
 from tlslite.utils import keyfactory
@@ -25,6 +26,20 @@ from bookkeeping.struct import make_struct
 
 
 URL_BASE = 'https://api.xero.com/api.xro/2.0/Invoices'
+
+
+def get_value(key):
+    """Get value from environment or cs.keychain
+
+    Raises RuntimeError if no value can be found.
+    """
+
+    value = os.getenv(key)
+    if value is None:
+        value = getattr(cs.keychain, key, None)
+    if value is None:
+        raise RuntimeError
+    return value
 
 
 class OAuthSignatureMethod_RSA_SHA1(oauth.SignatureMethod):
@@ -74,17 +89,18 @@ class OAuthSignatureMethod_RSA_SHA1(oauth.SignatureMethod):
 
 class XeroOAuthSignatureMethod_RSA_SHA1(OAuthSignatureMethod_RSA_SHA1):
     def _fetch_public_cert(self, oauth_request):
-        return XERO_RSACERT
+        return get_value('XERO_RSACERT')
 
     def _fetch_private_cert(self, oauth_request):
-        return XERO_RSAKEY
+        return get_value('XERO_RSAKEY')
 
 
 def xero_request(url, method='GET', body='', get_parameters=None, headers=None):
     """Request an xero durchführen"""
 
-    consumer = oauth.Consumer(key=XERO_CONSUMER_KEY, secret=XERO_CONSUMER_SECRET)
-    client = oauth.Client(consumer, token=oauth.Token(key=XERO_CONSUMER_KEY, secret=XERO_CONSUMER_SECRET))
+    consumer = oauth.Consumer(key=get_value('XERO_CONSUMER_KEY'), secret=get_value('XERO_CONSUMER_SECRET'))
+    client = oauth.Client(consumer, token=oauth.Token(key=get_value('XERO_CONSUMER_KEY'),
+                                                      secret=get_value('XERO_CONSUMER_SECRET')))
     client.set_signature_method(XeroOAuthSignatureMethod_RSA_SHA1())
 
     if headers is None:
