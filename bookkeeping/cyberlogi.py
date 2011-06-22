@@ -124,6 +124,13 @@ def xero_request(url, method='GET', body='', get_parameters=None, headers=None):
 
 def add_orderline(root, description, qty, price, account_code):
     """Füge Orderline zu XML-Baum hinzu"""
+    if not account_code:
+        # mit einer der letzten Updates von Xero ist der AccountCode pro Orderline
+        # ein Mandatory-Feld geworden, d.h. unsere bisherige 'Freitextuebertragung'
+        # funktioniert nicht mehr. Nach Ruecksprache mit @jwestphal werden nun die
+        # Freitexte nicht mehr uebertragen.
+        raise RuntimeError("Missing AccountCode for orderline %d times '%s'!" % (qty, description))
+
     lineitem = ET.SubElement(root, 'LineItem')
     ET.SubElement(lineitem, 'Description').text = description
     ET.SubElement(lineitem, 'Quantity').text = str(qty)
@@ -150,7 +157,7 @@ def store_invoice(invoice, tax_included=False, draft=False, xero_should_generate
 
 def store_invoices(invoices, tax_included=False, draft=False, xero_should_generate_invoice_number=False):
     """
-    Erzeugt eine Liste von (Ausgangs-) Rechnungen anhand des Simple Invoice Protocol. Als Ergebnis 
+    Erzeugt eine Liste von (Ausgangs-) Rechnungen anhand des Simple Invoice Protocol. Als Ergebnis
     wird ein Hash von Rechnungsnummern zu Xero-IDs zurueckgeliefert.
 
     Siehe https://github.com/hudora/CentralServices/blob/master/doc/SimpleInvoiceProtocol.markdown
@@ -184,11 +191,9 @@ def store_invoices(invoices, tax_included=False, draft=False, xero_should_genera
         ET.SubElement(invoice_element, 'Date').text = leistungsdatum.strftime('%Y-%m-%d')
 
         lineitems = ET.SubElement(invoice_element, 'LineItems')
-        if invoice.infotext_kunde:
-            add_orderline(lineitems, invoice.infotext_kunde, 0, 0, '')
         for item in invoice.orderlines:
             item = make_struct(item) # XXX rekursives Verhalten mit in make_struct packen
-        
+
             buchungskonto = '8404'  # default
             # wenn wir hier Ersatzteile von Neuware trenen könnten, könnten wir die Neuware auf Konto 8406
             # udn hoogoo Scooter auf Konto 8410 buchen.
@@ -297,10 +302,6 @@ def store_hudorainvoices(invoices, netto=True):
         ET.SubElement(invoice_element, 'Date').text = leistungsdatum.strftime('%Y-%m-%d')
 
         lineitems = ET.SubElement(invoice_element, 'LineItems')
-        if invoice.infotext_kunde:
-            add_orderline(lineitems, invoice.infotext_kunde, 0, 0, '')
-        if invoice.kundenauftragsnr:
-            add_orderline(lineitems, "Kundenauftragsnr: %s" % invoice.kundenauftragsnr, 0, 0, '')
 
         total = Decimal(0)
         for item in invoice.orderlines:
@@ -373,7 +374,7 @@ def check_for_hudora_invoices_in_xero(hudora_rechnungsnummern, tage):
     # HUDORA-Rechnungsnummern, die wir als Parameter bekommen haben.
     found_invoices_nested = map(lambda inv: inv['InvoiceNumber'].split(), data['Invoices'])
     found_invoices = set([item for sublist in found_invoices_nested for item in sublist])
-    return set(hudora_rechnungsnummern).difference(found_invoices)  
+    return set(hudora_rechnungsnummern).difference(found_invoices)
 
 def get_invoice(lieferscheinnr=None, invoice_id=None):
     """
