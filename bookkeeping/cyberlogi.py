@@ -126,9 +126,7 @@ def add_orderline(root, description, qty, price, account_code):
     """Füge Orderline zu XML-Baum hinzu"""
     if not account_code:
         # mit einer der letzten Updates von Xero ist der AccountCode pro Orderline
-        # ein Mandatory-Feld geworden, d.h. unsere bisherige 'Freitextuebertragung'
-        # funktioniert nicht mehr. Nach Ruecksprache mit @jwestphal werden nun die
-        # Freitexte nicht mehr uebertragen.
+        # ein Mandatory-Feld geworden.
         raise RuntimeError("Missing AccountCode for orderline %d times '%s'!" % (qty, description))
 
     lineitem = ET.SubElement(root, 'LineItem')
@@ -191,6 +189,8 @@ def store_invoices(invoices, tax_included=False, draft=False, xero_should_genera
         ET.SubElement(invoice_element, 'Date').text = leistungsdatum.strftime('%Y-%m-%d')
 
         lineitems = ET.SubElement(invoice_element, 'LineItems')
+        if invoice.infotext_kunde:
+            add_orderline(lineitems, invoice.infotext_kunde, 0, 0, '8404')
         for item in invoice.orderlines:
             item = make_struct(item) # XXX rekursives Verhalten mit in make_struct packen
 
